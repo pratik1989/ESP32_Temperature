@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.esp32temperature.ui.theme.ESP32TemperatureTheme
+import java.text.NumberFormat
+import java.util.*
 
 class MainActivity : ComponentActivity() {
 
@@ -272,7 +274,13 @@ fun MainScreen(
         
         val displayAlt = if (alt == "--") "--" else {
             val a = alt.toFloatOrNull() ?: 0f
-            if (isMetric) String.format("%.1f m", a) else String.format("%.1f ft", a * 3.28084f)
+            val value = if (isMetric) a else a * 3.28084f
+            val formatter = NumberFormat.getInstance(Locale("en", "IN")).apply {
+                minimumFractionDigits = 1
+                maximumFractionDigits = 1
+            }
+            val formatted = formatter.format(value)
+            if (isMetric) "$formatted m" else "$formatted ft"
         }
 
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.Start) {

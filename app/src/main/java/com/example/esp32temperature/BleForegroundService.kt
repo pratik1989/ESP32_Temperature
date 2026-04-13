@@ -208,20 +208,33 @@ class BleForegroundService : Service() {
     private fun updateWidgetAndBroadcast() {
         val chartBitmap = drawChart()
         
-        val intent = Intent(ACTION_UPDATE_DATA)
-        intent.putExtra(EXTRA_TEMPERATURE, currentTemperature)
-        intent.putExtra(EXTRA_ALTITUDE, currentAltitude)
-        intent.putExtra(EXTRA_STATUS, currentStatus)
-        intent.putExtra(EXTRA_DEVICE_ID, connectedDeviceId)
+        // Broadcast for Activity
+        val activityIntent = Intent(ACTION_UPDATE_DATA)
+        activityIntent.putExtra(EXTRA_TEMPERATURE, currentTemperature)
+        activityIntent.putExtra(EXTRA_ALTITUDE, currentAltitude)
+        activityIntent.putExtra(EXTRA_STATUS, currentStatus)
+        activityIntent.putExtra(EXTRA_DEVICE_ID, connectedDeviceId)
 
-        if (chartBitmap != null) {
-            val stream = java.io.ByteArrayOutputStream()
-            chartBitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            intent.putExtra(EXTRA_CHART_BYTES, stream.toByteArray())
+        val stream = java.io.ByteArrayOutputStream()
+        chartBitmap?.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        val chartBytes = stream.toByteArray()
+        if (chartBytes.isNotEmpty()) {
+            activityIntent.putExtra(EXTRA_CHART_BYTES, chartBytes)
         }
+        activityIntent.setPackage(packageName)
+        sendBroadcast(activityIntent)
 
-        intent.setPackage(packageName)
-        sendBroadcast(intent)
+        // Directly notify WidgetProvider
+        val widgetIntent = Intent(this, TemperatureWidgetProvider::class.java)
+        widgetIntent.action = ACTION_UPDATE_DATA
+        widgetIntent.putExtra(EXTRA_TEMPERATURE, currentTemperature)
+        widgetIntent.putExtra(EXTRA_ALTITUDE, currentAltitude)
+        widgetIntent.putExtra(EXTRA_STATUS, currentStatus)
+        widgetIntent.putExtra(EXTRA_DEVICE_ID, connectedDeviceId)
+        if (chartBytes.isNotEmpty()) {
+            widgetIntent.putExtra(EXTRA_CHART_BYTES, chartBytes)
+        }
+        sendBroadcast(widgetIntent)
     }
 
     private fun broadcastStatus(status: String, deviceId: String) {
@@ -233,6 +246,13 @@ class BleForegroundService : Service() {
         intent.putExtra(EXTRA_DEVICE_ID, deviceId)
         intent.setPackage(packageName)
         sendBroadcast(intent)
+        
+        // Also notify widget provider
+        val widgetIntent = Intent(this, TemperatureWidgetProvider::class.java)
+        widgetIntent.action = ACTION_CONNECTION_STATUS
+        widgetIntent.putExtra(EXTRA_STATUS, status)
+        widgetIntent.putExtra(EXTRA_DEVICE_ID, deviceId)
+        sendBroadcast(widgetIntent)
     }
 
     private fun drawChart(): Bitmap? {

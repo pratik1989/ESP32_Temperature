@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.widget.RemoteViews
+import java.text.NumberFormat
+import java.util.*
 
 class TemperatureWidgetProvider : AppWidgetProvider() {
 
@@ -46,7 +48,13 @@ class TemperatureWidgetProvider : AppWidgetProvider() {
         
         val displayAlt = if (alt == "--") "--" else {
             val a = alt.toFloatOrNull() ?: 0f
-            if (isMetric) String.format("%.1f m", a) else String.format("%.1f ft", a * 3.28084f)
+            val value = if (isMetric) a else a * 3.28084f
+            val formatter = NumberFormat.getInstance(Locale("en", "IN")).apply {
+                minimumFractionDigits = 1
+                maximumFractionDigits = 1
+            }
+            val formattedValue = formatter.format(value)
+            if (isMetric) "$formattedValue m" else "$formattedValue ft"
         }
 
         val views = RemoteViews(context.packageName, R.layout.temperature_widget_layout)

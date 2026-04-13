@@ -25,11 +25,11 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal">
         <TextView
-            android:layout_width="110dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Temperature:"
+            android:text="Temp: "
             android:textColor="@android:color/white"
-            android:textSize="16sp"
+            android:textSize="22sp"
             android:textStyle="bold" />
         <TextView
             android:id="@+id/widget_temp_value"
@@ -37,7 +37,7 @@
             android:layout_height="wrap_content"
             android:text="-- °C"
             android:textColor="@android:color/white"
-            android:textSize="16sp"
+            android:textSize="22sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -47,11 +47,11 @@
         android:orientation="horizontal"
         android:layout_marginTop="4dp">
         <TextView
-            android:layout_width="110dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Altitude:"
+            android:text="Alt: "
             android:textColor="@android:color/white"
-            android:textSize="16sp"
+            android:textSize="22sp"
             android:textStyle="bold" />
         <TextView
             android:id="@+id/widget_alt_value"
@@ -59,7 +59,7 @@
             android:layout_height="wrap_content"
             android:text="-- ft"
             android:textColor="@android:color/white"
-            android:textSize="16sp"
+            android:textSize="22sp"
             android:textStyle="bold" />
     </LinearLayout>
 
