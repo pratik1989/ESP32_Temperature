@@ -1,26 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="8dp"
-    android:background="@android:color/white"
-    android:gravity="center">
+    android:padding="12dp"
+    android:background="#80000000"
+    android:clickable="true"
+    android:focusable="true">
 
     <TextView
-        android:id="@+id/widget_title"
-        android:layout_width="wrap_content"
+        android:id="@+id/widget_status"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Temp:"
-        android:textColor="@android:color/black"
-        android:textSize="14sp" />
+        android:text="Disconnected"
+        android:textColor="#FFFF0000"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:gravity="center_horizontal"
+        android:layout_marginBottom="4dp"/>
 
-    <TextView
-        android:id="@+id/widget_temperature"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="-- °C"
-        android:textColor="@android:color/black"
-        android:textSize="24sp"
-        android:textStyle="bold" />
+        android:orientation="horizontal">
+        <TextView
+            android:layout_width="110dp"
+            android:layout_height="wrap_content"
+            android:text="Temperature:"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+        <TextView
+            android:id="@+id/widget_temp_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="-- °C"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="4dp">
+        <TextView
+            android:layout_width="110dp"
+            android:layout_height="wrap_content"
+            android:text="Altitude:"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+        <TextView
+            android:id="@+id/widget_alt_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="-- ft"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/widget_chart"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp"
+        android:scaleType="fitXY" />
 </LinearLayout>

@@ -2,16 +2,24 @@ package com.example.esp32temperature
 
 import android.annotation.SuppressLint
 import android.app.*
+import android.appwidget.AppWidgetManager
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.*
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import java.util.*
 
@@ -22,6 +30,7 @@ class BleForegroundService : Service() {
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
+    private var locationManager: LocationManager? = null
 
     private val SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
     private val CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
@@ -30,27 +39,43 @@ class BleForegroundService : Service() {
     private val CHANNEL_ID = "BleServiceChannel"
     private val NOTIFICATION_ID = 1
 
+    private var currentTemperature = "--"
+    private var currentAltitude = "--" 
+    private var currentStatus = "Disconnected"
+    private var connectedDeviceId = ""
+
+    private var connectionStartTime: Long = 0
+    private var isDataRecordingEnabled = false
+    
+    data class ChartPoint(val timestamp: Long, val temp: Float?, val alt: Float?)
+    private val dataHistory = mutableListOf<ChartPoint>()
+    private val HISTORY_LIMIT_MS = 3600000L // 1 hour
+
     companion object {
-        const val ACTION_UPDATE_TEMPERATURE = "com.example.esp32temperature.UPDATE_TEMPERATURE"
+        const val ACTION_UPDATE_DATA = "com.example.esp32temperature.UPDATE_DATA"
         const val ACTION_CONNECTION_STATUS = "com.example.esp32temperature.CONNECTION_STATUS"
-        const val EXTRA_TEMPERATURE = "EXTRA_TEMPERATURE"
+        const val EXTRA_TEMPERATURE = "EXTRA_TEMPERATURE" 
+        const val EXTRA_ALTITUDE = "EXTRA_ALTITUDE" 
         const val EXTRA_STATUS = "EXTRA_STATUS"
         const val EXTRA_DEVICE_ID = "EXTRA_DEVICE_ID"
+        const val EXTRA_CHART_BYTES = "EXTRA_CHART_BYTES"
+        
+        const val PREFS_NAME = "ESP32Prefs"
+        const val KEY_IS_METRIC = "is_metric"
     }
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "Service Created")
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "Service onStartCommand")
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ESP32 Temperature Monitor")
-            .setContentText("Scanning for ESP32...")
+            .setContentTitle("ESP32 Sensor Monitor")
+            .setContentText("Monitoring Temperature & Altitude...")
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .build()
 
@@ -60,104 +85,81 @@ class BleForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
         
-        if (bluetoothAdapter?.isEnabled == false) {
-            Log.e(TAG, "Bluetooth is disabled")
-            broadcastStatus("Disconnected", "")
-            return START_NOT_STICKY
-        }
-
         startScanning()
+        startLocationUpdates()
         
         return START_STICKY
     }
 
+    private fun startLocationUpdates() {
+        try {
+            locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 0f, locationListener)
+        } catch (e: SecurityException) { }
+    }
+
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            if (location.hasAltitude()) {
+                currentAltitude = String.format("%.1f", location.altitude)
+                recordData()
+            }
+        }
+        override fun onStatusChanged(p0: String?, p1: Int, p2: Bundle?) {}
+    }
+
     private fun startScanning() {
-        if (isScanning) {
-            Log.d(TAG, "Already scanning, ignoring request.")
-            return
-        }
-
-        val scanner = bluetoothAdapter?.bluetoothLeScanner
-        if (scanner == null) {
-            Log.e(TAG, "BluetoothLeScanner is null")
-            return
-        }
-
-        Log.d(TAG, "Starting Scan...")
+        if (isScanning) return
+        val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
         isScanning = true
         broadcastStatus("Scanning", "")
-        
-        val scanSettings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
-
-        scanner.startScan(null, scanSettings, scanCallback)
+        scanner.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), scanCallback)
     }
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val deviceName = result.device.name ?: "Unknown"
-            // Using contains to handle truncated names like "ESP32_Te"
-            if (deviceName.contains("ESP32_Te", ignoreCase = true)) {
-                Log.i(TAG, "Match found: $deviceName (${result.device.address}). Connecting...")
+            val name = result.device.name ?: ""
+            if (name.contains("ESP32_Te", ignoreCase = true)) {
                 stopScanning()
                 connectToDevice(result.device)
             }
-        }
-
-        override fun onScanFailed(errorCode: Int) {
-            isScanning = false
-            Log.e(TAG, "Scan failed with error code: $errorCode")
-            broadcastStatus("Scan Failed ($errorCode)", "")
         }
     }
 
     private fun stopScanning() {
         if (isScanning) {
-            Log.d(TAG, "Stopping Scan")
             bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
             isScanning = false
         }
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
-        Log.d(TAG, "Connecting to GATT server...")
         broadcastStatus("Connecting", device.address)
-        // Using TRANSPORT_LE for better compatibility with BLE devices
         bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            Log.d(TAG, "Connection state changed. Status: $status, New State: $newState")
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                Log.i(TAG, "Connected to GATT server. Discovering services...")
                 broadcastStatus("Connected", gatt.device.address)
+                connectionStartTime = System.currentTimeMillis()
+                isDataRecordingEnabled = false
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                Log.w(TAG, "Disconnected from GATT server.")
                 broadcastStatus("Disconnected", "")
-                broadcastTemperature("--")
-                isScanning = false
-                // Attempt to reconnect by restarting scan after 5 seconds
+                currentTemperature = "--"
+                isDataRecordingEnabled = false
+                dataHistory.clear()
+                updateWidgetAndBroadcast()
                 android.os.Handler(mainLooper).postDelayed({ startScanning() }, 5000)
             }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                Log.d(TAG, "Services discovered successfully")
                 val service = gatt.getService(SERVICE_UUID)
-                if (service == null) {
-                    Log.e(TAG, "Service NOT found: $SERVICE_UUID")
-                    return
-                }
-                
-                val characteristic = service.getCharacteristic(CHARACTERISTIC_UUID)
+                val characteristic = service?.getCharacteristic(CHARACTERISTIC_UUID)
                 if (characteristic != null) {
-                    Log.i(TAG, "Characteristic found. Enabling notifications...")
                     gatt.setCharacteristicNotification(characteristic, true)
-                    
                     val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG)
                     if (descriptor != null) {
                         descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
@@ -169,21 +171,50 @@ class BleForegroundService : Service() {
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (characteristic.uuid == CHARACTERISTIC_UUID) {
-                val data = characteristic.value
-                val temperature = data?.let { String(it) } ?: "--"
-                broadcastTemperature(temperature)
+                currentTemperature = characteristic.value?.let { String(it) } ?: "--"
+                recordData()
             }
         }
     }
 
-    private fun broadcastTemperature(temperature: String) {
-        val intent = Intent(ACTION_UPDATE_TEMPERATURE)
-        intent.putExtra(EXTRA_TEMPERATURE, temperature)
+    private fun recordData() {
+        val now = System.currentTimeMillis()
+        if (!isDataRecordingEnabled && connectionStartTime > 0 && (now - connectionStartTime) > 3000) {
+            isDataRecordingEnabled = true
+        }
+
+        if (isDataRecordingEnabled) {
+            val tempFloat = currentTemperature.toFloatOrNull()
+            val altFloat = currentAltitude.toFloatOrNull()
+            dataHistory.add(ChartPoint(now, tempFloat, altFloat))
+            dataHistory.removeAll { now - it.timestamp > HISTORY_LIMIT_MS }
+        }
+        updateWidgetAndBroadcast()
+    }
+
+    private fun updateWidgetAndBroadcast() {
+        val chartBitmap = drawChart()
+        
+        val intent = Intent(ACTION_UPDATE_DATA)
+        intent.putExtra(EXTRA_TEMPERATURE, currentTemperature)
+        intent.putExtra(EXTRA_ALTITUDE, currentAltitude)
+        intent.putExtra(EXTRA_STATUS, currentStatus)
+        intent.putExtra(EXTRA_DEVICE_ID, connectedDeviceId)
+
+        if (chartBitmap != null) {
+            val stream = java.io.ByteArrayOutputStream()
+            chartBitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            intent.putExtra(EXTRA_CHART_BYTES, stream.toByteArray())
+        }
+
         intent.setPackage(packageName)
         sendBroadcast(intent)
     }
 
     private fun broadcastStatus(status: String, deviceId: String) {
+        currentStatus = status
+        connectedDeviceId = deviceId
+        
         val intent = Intent(ACTION_CONNECTION_STATUS)
         intent.putExtra(EXTRA_STATUS, status)
         intent.putExtra(EXTRA_DEVICE_ID, deviceId)
@@ -191,24 +222,116 @@ class BleForegroundService : Service() {
         sendBroadcast(intent)
     }
 
+    private fun drawChart(): Bitmap? {
+        if (dataHistory.size < 2) return null
+        
+        val width = 400
+        val height = 200
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        
+        val now = System.currentTimeMillis()
+        val dataStartTime = dataHistory.firstOrNull()?.timestamp ?: now
+        val chartStartTime = Math.max(now - HISTORY_LIMIT_MS, dataStartTime)
+        val totalRange = Math.max(10000L, now - chartStartTime)
+
+        val tempPoints = dataHistory.filter { it.temp != null && it.timestamp >= chartStartTime }
+        val altPoints = dataHistory.filter { it.alt != null && it.timestamp >= chartStartTime }
+        
+        if (tempPoints.isEmpty() && altPoints.isEmpty()) return bitmap
+
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val isMetric = prefs.getBoolean(KEY_IS_METRIC, true)
+
+        fun getAdjustedBounds(points: List<Float>, defaultMin: Float, defaultMax: Float, minBuffer: Float): Pair<Float, Float> {
+            if (points.isEmpty()) return defaultMin to defaultMax
+            val min = points.min()
+            val max = points.max()
+            val range = (max - min).coerceAtLeast(minBuffer)
+            return (min - range * 0.5f) to (max + range * 0.5f)
+        }
+
+        val (minT, maxT) = getAdjustedBounds(tempPoints.map { it.temp!! }, 0f, 100f, 10f)
+        val (minA, maxA) = getAdjustedBounds(altPoints.map { it.alt!! }, 0f, 10000f, 100f)
+
+        val padding = 20f
+        val chartW = width - 2 * padding
+        val chartH = height - 2 * padding
+
+        fun getX(ts: Long) = padding + ((ts - chartStartTime).toFloat() / totalRange) * chartW
+        fun getY(value: Float, min: Float, max: Float): Float {
+            val range = if (max == min) 1f else max - min
+            return height - padding - ((value - min) / range) * chartH
+        }
+
+        val tempPaint = Paint().apply {
+            color = Color.MAGENTA
+            strokeWidth = 3f
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
+        }
+        if (tempPoints.size >= 2) {
+            val path = Path()
+            path.moveTo(getX(tempPoints[0].timestamp), getY(tempPoints[0].temp!!, minT, maxT))
+            for (i in 1 until tempPoints.size) {
+                path.lineTo(getX(tempPoints[i].timestamp), getY(tempPoints[i].temp!!, minT, maxT))
+            }
+            canvas.drawPath(path, tempPaint)
+        }
+
+        val altPaint = Paint().apply {
+            color = Color.rgb(135, 206, 235)
+            strokeWidth = 3f
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+            strokeJoin = Paint.Join.ROUND
+            strokeCap = Paint.Cap.ROUND
+        }
+        if (altPoints.size >= 2) {
+            val path = Path()
+            path.moveTo(getX(altPoints[0].timestamp), getY(altPoints[0].alt!!, minA, maxA))
+            for (i in 1 until altPoints.size) {
+                path.lineTo(getX(altPoints[i].timestamp), getY(altPoints[i].alt!!, minA, maxA))
+            }
+            canvas.drawPath(path, altPaint)
+        }
+
+        val textPaint = Paint().apply {
+            color = Color.WHITE
+            textSize = 12f
+            isFakeBoldText = true
+        }
+        
+        // Temperature fixed in Celsius
+        canvas.drawText("${String.format("%.1f", maxT)}°C", 5f, padding, textPaint)
+        canvas.drawText("${String.format("%.1f", minT)}°C", 5f, height - 5f, textPaint)
+        
+        textPaint.textAlign = Paint.Align.RIGHT
+        // Altitude toggleable between m and ft
+        val altMaxStr = if (isMetric) String.format("%.0fm", maxA) else String.format("%.0fft", maxA * 3.28084f)
+        val altMinStr = if (isMetric) String.format("%.0fm", minA) else String.format("%.0fft", minA * 3.28084f)
+
+        canvas.drawText(altMaxStr, width - 5f, padding, textPaint)
+        canvas.drawText(altMinStr, width - 5f, height - 5f, textPaint)
+
+        return bitmap
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID,
-                "BLE Service Channel",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(serviceChannel)
+            val channel = NotificationChannel(CHANNEL_ID, "BLE Service Channel", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     override fun onDestroy() {
-        Log.d(TAG, "Service Destroyed")
+        broadcastStatus("Disconnected", "") // Send final status before closing
         stopScanning()
+        locationManager?.removeUpdates(locationListener)
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
-        bluetoothGatt = null
         super.onDestroy()
     }
 

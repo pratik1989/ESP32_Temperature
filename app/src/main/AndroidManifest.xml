@@ -40,10 +40,10 @@
 
         <receiver
             android:name=".TemperatureWidgetProvider"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.example.esp32temperature.UPDATE_TEMPERATURE" />
+                <action android:name="com.example.esp32temperature.UPDATE_DATA" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
