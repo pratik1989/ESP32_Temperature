@@ -10,11 +10,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private var altitude by mutableStateOf("--")
     private var chartBitmap by mutableStateOf<Bitmap?>(null)
     private var isMetric by mutableStateOf(true)
+    private var isLocked by mutableStateOf(false)
 
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -73,6 +77,7 @@ class MainActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
         isMetric = prefs.getBoolean(BleForegroundService.KEY_IS_METRIC, true)
+        isLocked = prefs.getBoolean(BleForegroundService.KEY_IS_LOCKED, false)
 
         setContent {
             ESP32TemperatureTheme {
@@ -87,9 +92,12 @@ class MainActivity : ComponentActivity() {
                         alt = altitude,
                         bitmap = chartBitmap,
                         isMetric = isMetric,
+                        isLocked = isLocked,
                         onUnitToggle = { toggleUnits() },
+                        onLockToggle = { toggleLock() },
                         onStartClick = { startBleService() },
-                        onStopClick = { stopBleService() }
+                        onStopClick = { stopBleService() },
+                        onDmd2Click = { openDmd2() }
                     )
                 }
             }
@@ -106,6 +114,27 @@ class MainActivity : ComponentActivity() {
         broadcastUpdate()
     }
 
+    private fun toggleLock() {
+        if (!isLocked && connectionStatus != "Connected") {
+            Toast.makeText(this, "Connect to a sensor first to lock it", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        isLocked = !isLocked
+        val prefs = getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        editor.putBoolean(BleForegroundService.KEY_IS_LOCKED, isLocked)
+        
+        if (isLocked) {
+            editor.putString(BleForegroundService.KEY_LOCKED_DEVICE_ID, deviceId)
+            Toast.makeText(this, "Sensor Locked to: $deviceId", Toast.LENGTH_SHORT).show()
+        } else {
+            editor.putString(BleForegroundService.KEY_LOCKED_DEVICE_ID, "")
+            Toast.makeText(this, "Sensor Unlocked", Toast.LENGTH_SHORT).show()
+        }
+        editor.apply()
+    }
+
     private fun broadcastUpdate() {
         val intent = Intent(BleForegroundService.ACTION_UPDATE_DATA)
         intent.putExtra(BleForegroundService.EXTRA_TEMPERATURE, temperature)
@@ -114,6 +143,16 @@ class MainActivity : ComponentActivity() {
         intent.putExtra(BleForegroundService.EXTRA_DEVICE_ID, deviceId)
         intent.setPackage(packageName)
         sendBroadcast(intent)
+    }
+
+    private fun openDmd2() {
+        val packageName = "com.thorkracing.dmd2launcher"
+        val intent = packageManager.getLaunchIntentForPackage(packageName)
+        if (intent != null) {
+            startActivity(intent)
+        } else {
+            Toast.makeText(this, "DMD2 app not found", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onResume() {
@@ -178,7 +217,6 @@ class MainActivity : ComponentActivity() {
         altitude = "--"
         chartBitmap = null
         
-        // Update widget when stopping service
         val updateIntent = Intent(BleForegroundService.ACTION_CONNECTION_STATUS)
         updateIntent.putExtra(BleForegroundService.EXTRA_STATUS, "Disconnected")
         updateIntent.putExtra(BleForegroundService.EXTRA_TEMPERATURE, "--")
@@ -196,9 +234,12 @@ fun MainScreen(
     alt: String, 
     bitmap: Bitmap?,
     isMetric: Boolean,
+    isLocked: Boolean,
     onUnitToggle: () -> Unit,
+    onLockToggle: () -> Unit,
     onStartClick: () -> Unit, 
-    onStopClick: () -> Unit
+    onStopClick: () -> Unit,
+    onDmd2Click: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -260,31 +301,56 @@ fun MainScreen(
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.SpaceEvenly,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(text = if (isMetric) "Altitude: Meters" else "Altitude: Feet", style = MaterialTheme.typography.bodyLarge)
-            Switch(
-                checked = !isMetric, 
-                onCheckedChange = { onUnitToggle() }, 
-                modifier = Modifier.padding(start = 12.dp)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = if (isMetric) "Meters" else "Feet", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = !isMetric, 
+                    onCheckedChange = { onUnitToggle() }, 
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "Lock Sensor", style = MaterialTheme.typography.bodyMedium)
+                Switch(
+                    checked = isLocked, 
+                    onCheckedChange = { onLockToggle() }, 
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
             onClick = onStartClick,
-            modifier = Modifier.padding(8.dp).fillMaxWidth(0.8f)
+            modifier = Modifier.padding(4.dp).fillMaxWidth(0.8f)
         ) {
             Text("Start Sensor Connection")
         }
         
         Button(
             onClick = onStopClick,
-            modifier = Modifier.padding(8.dp).fillMaxWidth(0.8f)
+            modifier = Modifier.padding(4.dp).fillMaxWidth(0.8f)
         ) {
             Text("Stop Connection")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        IconButton(
+            onClick = onDmd2Click,
+            modifier = Modifier.size(64.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.DirectionsCar,
+                contentDescription = "Open DMD2",
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

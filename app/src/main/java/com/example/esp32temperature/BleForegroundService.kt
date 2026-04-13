@@ -62,6 +62,8 @@ class BleForegroundService : Service() {
         
         const val PREFS_NAME = "ESP32Prefs"
         const val KEY_IS_METRIC = "is_metric"
+        const val KEY_LOCKED_DEVICE_ID = "locked_device_id"
+        const val KEY_IS_LOCKED = "is_locked"
     }
 
     override fun onCreate() {
@@ -118,9 +120,20 @@ class BleForegroundService : Service() {
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val name = result.device.name ?: ""
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val isLocked = prefs.getBoolean(KEY_IS_LOCKED, false)
+            val lockedId = prefs.getString(KEY_LOCKED_DEVICE_ID, "")
+
             if (name.contains("ESP32_Te", ignoreCase = true)) {
-                stopScanning()
-                connectToDevice(result.device)
+                if (isLocked && lockedId!!.isNotEmpty()) {
+                    if (result.device.address == lockedId) {
+                        stopScanning()
+                        connectToDevice(result.device)
+                    }
+                } else {
+                    stopScanning()
+                    connectToDevice(result.device)
+                }
             }
         }
     }
