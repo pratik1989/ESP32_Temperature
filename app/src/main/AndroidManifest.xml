@@ -44,6 +44,7 @@
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="com.example.esp32temperature.UPDATE_DATA" />
+                <action android:name="com.example.esp32temperature.CONNECTION_STATUS" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
