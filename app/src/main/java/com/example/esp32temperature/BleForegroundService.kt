@@ -17,7 +17,9 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
@@ -32,6 +34,8 @@ class BleForegroundService : Service() {
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
     private var locationManager: LocationManager? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var shouldAutoReconnect = true
 
     private val SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
     private val CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
@@ -46,7 +50,6 @@ class BleForegroundService : Service() {
     private var connectedDeviceId = ""
 
     private var connectionStartTime: Long = 0
-    private var isDataRecordingEnabled = false
     
     data class ChartPoint(val timestamp: Long, val temp: Float?, val alt: Float?)
     private val dataHistory = mutableListOf<ChartPoint>()
@@ -63,6 +66,7 @@ class BleForegroundService : Service() {
         
         const val PREFS_NAME = "ESP32Prefs"
         const val KEY_IS_METRIC = "is_metric"
+        const val KEY_IS_CELSIUS = "is_celsius"
         const val KEY_LOCKED_DEVICE_ID = "locked_device_id"
         const val KEY_IS_LOCKED = "is_locked"
     }
@@ -75,9 +79,10 @@ class BleForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        shouldAutoReconnect = true
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ESP32 Sensor Monitor")
+            .setContentTitle("DMD Temperature Monitor")
             .setContentText("Monitoring Temperature & Altitude...")
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .build()
@@ -111,7 +116,7 @@ class BleForegroundService : Service() {
     }
 
     private fun startScanning() {
-        if (isScanning) return
+        if (isScanning || bluetoothGatt != null) return
         val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
         isScanning = true
         broadcastStatus("Scanning", "")
@@ -147,6 +152,10 @@ class BleForegroundService : Service() {
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
+        if (bluetoothGatt != null) {
+            bluetoothGatt?.close()
+            bluetoothGatt = null
+        }
         broadcastStatus("Connecting", device.address)
         bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
@@ -156,15 +165,18 @@ class BleForegroundService : Service() {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 broadcastStatus("Connected", gatt.device.address)
                 connectionStartTime = System.currentTimeMillis()
-                isDataRecordingEnabled = false
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                if (gatt == bluetoothGatt) {
+                    bluetoothGatt?.close()
+                    bluetoothGatt = null
+                }
                 broadcastStatus("Disconnected", "")
                 currentTemperature = "--"
-                isDataRecordingEnabled = false
-                dataHistory.clear()
                 updateWidgetAndBroadcast()
-                android.os.Handler(mainLooper).postDelayed({ startScanning() }, 5000)
+                if (shouldAutoReconnect) {
+                    handler.postDelayed({ startScanning() }, 5000)
+                }
             }
         }
 
@@ -193,13 +205,10 @@ class BleForegroundService : Service() {
 
     private fun recordData() {
         val now = System.currentTimeMillis()
-        if (!isDataRecordingEnabled && connectionStartTime > 0 && (now - connectionStartTime) > 3000) {
-            isDataRecordingEnabled = true
-        }
-
-        if (isDataRecordingEnabled) {
-            val tempFloat = currentTemperature.toFloatOrNull()
-            val altFloat = currentAltitude.toFloatOrNull()
+        val tempFloat = currentTemperature.toFloatOrNull()
+        val altFloat = currentAltitude.toFloatOrNull()
+        
+        if (tempFloat != null || altFloat != null) {
             dataHistory.add(ChartPoint(now, tempFloat, altFloat))
             dataHistory.removeAll { now - it.timestamp > HISTORY_LIMIT_MS }
         }
@@ -276,6 +285,7 @@ class BleForegroundService : Service() {
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val isMetric = prefs.getBoolean(KEY_IS_METRIC, true)
+        val isCelsius = prefs.getBoolean(KEY_IS_CELSIUS, true)
 
         fun getAdjustedBounds(points: List<Float>, defaultMin: Float, defaultMax: Float, minBuffer: Float): Pair<Float, Float> {
             if (points.isEmpty()) return defaultMin to defaultMax
@@ -347,8 +357,10 @@ class BleForegroundService : Service() {
         }
         
         // Temperature Labels (Top half)
-        canvas.drawText("${String.format("%.1f", maxT)}°C", 5f, padding + 10f, textPaint)
-        canvas.drawText("${String.format("%.1f", minT)}°C", 5f, padding + halfH, textPaint)
+        val tempMaxStr = if (isCelsius) String.format("%.1f°C", maxT) else String.format("%.1f°F", maxT * 9/5 + 32)
+        val tempMinStr = if (isCelsius) String.format("%.1f°C", minT) else String.format("%.1f°F", minT * 9/5 + 32)
+        canvas.drawText(tempMaxStr, 5f, padding + 10f, textPaint)
+        canvas.drawText(tempMinStr, 5f, padding + halfH, textPaint)
         
         textPaint.textAlign = Paint.Align.RIGHT
         // Altitude Labels (Bottom half)
@@ -397,11 +409,13 @@ class BleForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        shouldAutoReconnect = false
+        handler.removeCallbacksAndMessages(null)
         broadcastStatus("Disconnected", "") // Send final status before closing
         stopScanning()
         locationManager?.removeUpdates(locationListener)
-        bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
+        bluetoothGatt = null
         super.onDestroy()
     }
 

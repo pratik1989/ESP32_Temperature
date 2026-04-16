@@ -40,10 +40,15 @@ class TemperatureWidgetProvider : AppWidgetProvider() {
     private fun updateAppWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, temp: String, alt: String, status: String, chartBitmap: android.graphics.Bitmap?) {
         val prefs = context.getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
         val isMetric = prefs.getBoolean(BleForegroundService.KEY_IS_METRIC, true)
+        val isCelsius = prefs.getBoolean(BleForegroundService.KEY_IS_CELSIUS, true)
 
         val displayTemp = if (temp == "--") "--" else {
             val t = temp.toFloatOrNull() ?: 0f
-            String.format("%.1f °C", t)
+            if (isCelsius) {
+                String.format("%.1f °C", t)
+            } else {
+                String.format("%.1f °F", t * 9/5 + 32)
+            }
         }
         
         val displayAlt = if (alt == "--") "--" else {

@@ -19,20 +19,27 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -49,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private var altitude by mutableStateOf("--")
     private var chartBitmap by mutableStateOf<Bitmap?>(null)
     private var isMetric by mutableStateOf(true)
+    private var isCelsius by mutableStateOf(true)
     private var isLocked by mutableStateOf(false)
 
     private val dataReceiver = object : BroadcastReceiver() {
@@ -82,7 +90,11 @@ class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> }
+    ) { results ->
+        if (results.all { it.value }) {
+            startBleService()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,6 +102,7 @@ class MainActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
         isMetric = prefs.getBoolean(BleForegroundService.KEY_IS_METRIC, true)
+        isCelsius = prefs.getBoolean(BleForegroundService.KEY_IS_CELSIUS, true)
         isLocked = prefs.getBoolean(BleForegroundService.KEY_IS_LOCKED, false)
 
         setContent {
@@ -105,8 +118,10 @@ class MainActivity : ComponentActivity() {
                         alt = altitude,
                         bitmap = chartBitmap,
                         isMetric = isMetric,
+                        isCelsius = isCelsius,
                         isLocked = isLocked,
                         onUnitToggle = { toggleUnits() },
+                        onTempToggle = { toggleTempUnits() },
                         onLockToggle = { toggleLock() },
                         onStartClick = { startBleService() },
                         onStopClick = { stopBleService() },
@@ -122,6 +137,16 @@ class MainActivity : ComponentActivity() {
         getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(BleForegroundService.KEY_IS_METRIC, isMetric)
+            .apply()
+        
+        broadcastUpdate()
+    }
+
+    private fun toggleTempUnits() {
+        isCelsius = !isCelsius
+        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(BleForegroundService.KEY_IS_CELSIUS, isCelsius)
             .apply()
         
         broadcastUpdate()
@@ -208,6 +233,8 @@ class MainActivity : ComponentActivity() {
         }
         if (missingPermissions.isNotEmpty()) {
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
+        } else {
+            startBleService()
         }
     }
 
@@ -247,8 +274,10 @@ fun MainScreen(
     alt: String, 
     bitmap: Bitmap?,
     isMetric: Boolean,
+    isCelsius: Boolean,
     isLocked: Boolean,
     onUnitToggle: () -> Unit,
+    onTempToggle: () -> Unit,
     onLockToggle: () -> Unit,
     onStartClick: () -> Unit, 
     onStopClick: () -> Unit,
@@ -256,9 +285,13 @@ fun MainScreen(
 ) {
     var showInfoDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -283,7 +316,7 @@ fun MainScreen(
 
         val displayTemp = if (temp == "--") "--" else {
             val t = temp.toFloatOrNull() ?: 0f
-            String.format("%.1f °C", t)
+            if (isCelsius) String.format("%.1f °C", t) else String.format("%.1f °F", t * 9/5 + 32)
         }
         
         val displayAlt = if (alt == "--") "--" else {
@@ -302,18 +335,76 @@ fun MainScreen(
             Text(text = "Altitude: $displayAlt", style = MaterialTheme.typography.titleMedium)
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        IconButton(
-            onClick = { showInfoDialog = true },
-            modifier = Modifier.size(64.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = "Info",
-                modifier = Modifier.size(48.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
+            FilledIconButton(
+                onClick = onStartClick,
+                modifier = Modifier.size(64.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = ComposeColor(0xFF4CAF50).copy(alpha = 0.1f)
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Start Sensor Connection",
+                    modifier = Modifier.size(40.dp),
+                    tint = ComposeColor(0xFF4CAF50)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            FilledIconButton(
+                onClick = onStopClick,
+                modifier = Modifier.size(64.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = ComposeColor.Red.copy(alpha = 0.1f)
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Stop,
+                    contentDescription = "Stop Connection",
+                    modifier = Modifier.size(40.dp),
+                    tint = ComposeColor.Red
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(16.dp))
+
+            FilledIconButton(
+                onClick = onDmd2Click,
+                modifier = Modifier.size(64.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DirectionsCar,
+                    contentDescription = "Open DMD2",
+                    modifier = Modifier.size(40.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            FilledIconButton(
+                onClick = { showInfoDialog = true },
+                modifier = Modifier.size(64.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = "Info",
+                    modifier = Modifier.size(40.dp),
+                    tint = MaterialTheme.colorScheme.secondary
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -341,52 +432,31 @@ fun MainScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = if (isMetric) "Meters" else "Feet", style = MaterialTheme.typography.bodyMedium)
+                Text(text = if (isMetric) "Meters" else "Feet", style = MaterialTheme.typography.bodySmall)
                 Switch(
                     checked = !isMetric, 
                     onCheckedChange = { onUnitToggle() }, 
-                    modifier = Modifier.padding(start = 8.dp)
+                    modifier = Modifier.scale(0.8f).padding(start = 4.dp)
                 )
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Lock Sensor", style = MaterialTheme.typography.bodyMedium)
+                Text(text = if (isCelsius) "°C" else "°F", style = MaterialTheme.typography.bodySmall)
+                Switch(
+                    checked = !isCelsius, 
+                    onCheckedChange = { onTempToggle() }, 
+                    modifier = Modifier.scale(0.8f).padding(start = 4.dp)
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "Lock", style = MaterialTheme.typography.bodySmall)
                 Switch(
                     checked = isLocked, 
                     onCheckedChange = { onLockToggle() }, 
-                    modifier = Modifier.padding(start = 8.dp)
+                    modifier = Modifier.scale(0.8f).padding(start = 4.dp)
                 )
             }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = onStartClick,
-            modifier = Modifier.padding(4.dp).fillMaxWidth(0.8f)
-        ) {
-            Text("Start Sensor Connection")
-        }
-        
-        Button(
-            onClick = onStopClick,
-            modifier = Modifier.padding(4.dp).fillMaxWidth(0.8f)
-        ) {
-            Text("Stop Connection")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        IconButton(
-            onClick = onDmd2Click,
-            modifier = Modifier.size(64.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.DirectionsCar,
-                contentDescription = "Open DMD2",
-                modifier = Modifier.size(48.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
         }
     }
 
@@ -419,10 +489,17 @@ fun MainScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
+                        text = "Add an External Widget screen on DMD2 home screen and then select this widget to show the chart and data from this app.",
+                        color = ComposeColor.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 24.dp)
+                    )
+                    Text(
                         text = "Made With Pride for Riders By",
                         color = ComposeColor.White,
                         style = MaterialTheme.typography.bodyLarge,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -432,7 +509,7 @@ fun MainScreen(
                             fontWeight = FontWeight.Bold,
                             fontSize = 28.sp
                         ),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     Row(
@@ -466,3 +543,15 @@ fun MainScreen(
         }
     }
 }
+
+private fun Modifier.scale(scale: Float): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        layout(
+            (placeable.width * scale).toInt(),
+            (placeable.height * scale).toInt()
+        ) {
+            placeable.placeRelative(0, 0)
+        }
+    }
+)
