@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -15,16 +16,26 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.example.esp32temperature.ui.theme.ESP32TemperatureTheme
 import java.text.NumberFormat
@@ -243,6 +254,9 @@ fun MainScreen(
     onStopClick: () -> Unit,
     onDmd2Click: () -> Unit
 ) {
+    var showInfoDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.Top,
@@ -288,7 +302,21 @@ fun MainScreen(
             Text(text = "Altitude: $displayAlt", style = MaterialTheme.typography.titleMedium)
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+
+        IconButton(
+            onClick = { showInfoDialog = true },
+            modifier = Modifier.size(64.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = "Info",
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         Box(
             modifier = Modifier
@@ -359,6 +387,82 @@ fun MainScreen(
                 modifier = Modifier.size(48.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
+        }
+    }
+
+    if (showInfoDialog) {
+        Dialog(onDismissRequest = { showInfoDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight()
+                    .background(
+                        color = ComposeColor.Black.copy(alpha = 0.8f),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .padding(16.dp)
+            ) {
+                IconButton(
+                    onClick = { showInfoDialog = false },
+                    modifier = Modifier.align(Alignment.TopEnd)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = ComposeColor.White
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp, bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "Made With Pride for Riders By",
+                        color = ComposeColor.White,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Pratik Kumar",
+                        color = ComposeColor(0xFF87CEEB), // Sky Blue
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 28.sp
+                        ),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Image(
+                            painter = painterResource(id = android.R.drawable.ic_menu_slideshow), // Temporary placeholder
+                            contentDescription = "YouTube",
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clickable {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@sleepyvoyager"))
+                                    context.startActivity(intent)
+                                }
+                        )
+                        Spacer(modifier = Modifier.width(32.dp))
+                        Image(
+                            painter = painterResource(id = android.R.drawable.ic_menu_camera), // Temporary placeholder
+                            contentDescription = "Instagram",
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clickable {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/sleepyvoyager"))
+                                    context.startActivity(intent)
+                                }
+                        )
+                    }
+                }
+            }
         }
     }
 }
