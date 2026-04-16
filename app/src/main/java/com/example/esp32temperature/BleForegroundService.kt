@@ -21,6 +21,7 @@ import android.os.IBinder
 import android.util.Log
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import java.text.SimpleDateFormat
 import java.util.*
 
 @SuppressLint("MissingPermission")
@@ -355,7 +356,27 @@ class BleForegroundService : Service() {
         val altMinStr = if (isMetric) String.format("%.0fm", minA) else String.format("%.0fft", minA * 3.28084f)
 
         canvas.drawText(altMaxStr, width - 5f, padding + halfH + 10f, textPaint)
-        canvas.drawText(altMinStr, width - 5f, height - 5f, textPaint)
+        canvas.drawText(altMinStr, width - 5f, height - padding, textPaint)
+
+        // Time Info
+        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val elapsedMs = now - dataStartTime
+        
+        textPaint.color = Color.LTGRAY
+        textPaint.textSize = 9f
+        
+        if (elapsedMs < HISTORY_LIMIT_MS) {
+            val elapsedMin = elapsedMs / 60000
+            textPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText("Started: ${timeFormat.format(Date(dataStartTime))}", 5f, height - 5f, textPaint)
+            textPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("$elapsedMin min elapsed", width - 5f, height - 5f, textPaint)
+        } else {
+            textPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText("Start: ${timeFormat.format(Date(chartStartTime))}", 5f, height - 5f, textPaint)
+            textPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("Now: ${timeFormat.format(Date(now))}", width - 5f, height - 5f, textPaint)
+        }
 
         // Draw separator line
         val sepPaint = Paint().apply {
