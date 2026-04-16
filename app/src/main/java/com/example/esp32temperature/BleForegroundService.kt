@@ -281,20 +281,28 @@ class BleForegroundService : Service() {
             val min = points.min()
             val max = points.max()
             val range = (max - min).coerceAtLeast(minBuffer)
-            return (min - range * 0.5f) to (max + range * 0.5f)
+            return (min - range * 0.1f) to (max + range * 0.1f)
         }
 
-        val (minT, maxT) = getAdjustedBounds(tempPoints.map { it.temp!! }, 0f, 100f, 10f)
-        val (minA, maxA) = getAdjustedBounds(altPoints.map { it.alt!! }, 0f, 10000f, 100f)
+        val (minT, maxT) = getAdjustedBounds(tempPoints.map { it.temp!! }, 0f, 100f, 2f)
+        val (minA, maxA) = getAdjustedBounds(altPoints.map { it.alt!! }, 0f, 10000f, 20f)
 
         val padding = 20f
         val chartW = width - 2 * padding
-        val chartH = height - 2 * padding
+        val halfH = (height - 2 * padding) / 2f
 
         fun getX(ts: Long) = padding + ((ts - chartStartTime).toFloat() / totalRange) * chartW
-        fun getY(value: Float, min: Float, max: Float): Float {
+        
+        // Temperature on TOP half
+        fun getTempY(value: Float, min: Float, max: Float): Float {
             val range = if (max == min) 1f else max - min
-            return height - padding - ((value - min) / range) * chartH
+            return padding + halfH - ((value - min) / range) * halfH
+        }
+
+        // Altitude on BOTTOM half
+        fun getAltY(value: Float, min: Float, max: Float): Float {
+            val range = if (max == min) 1f else max - min
+            return height - padding - ((value - min) / range) * halfH
         }
 
         val tempPaint = Paint().apply {
@@ -307,9 +315,9 @@ class BleForegroundService : Service() {
         }
         if (tempPoints.size >= 2) {
             val path = Path()
-            path.moveTo(getX(tempPoints[0].timestamp), getY(tempPoints[0].temp!!, minT, maxT))
+            path.moveTo(getX(tempPoints[0].timestamp), getTempY(tempPoints[0].temp!!, minT, maxT))
             for (i in 1 until tempPoints.size) {
-                path.lineTo(getX(tempPoints[i].timestamp), getY(tempPoints[i].temp!!, minT, maxT))
+                path.lineTo(getX(tempPoints[i].timestamp), getTempY(tempPoints[i].temp!!, minT, maxT))
             }
             canvas.drawPath(path, tempPaint)
         }
@@ -324,30 +332,38 @@ class BleForegroundService : Service() {
         }
         if (altPoints.size >= 2) {
             val path = Path()
-            path.moveTo(getX(altPoints[0].timestamp), getY(altPoints[0].alt!!, minA, maxA))
+            path.moveTo(getX(altPoints[0].timestamp), getAltY(altPoints[0].alt!!, minA, maxA))
             for (i in 1 until altPoints.size) {
-                path.lineTo(getX(altPoints[i].timestamp), getY(altPoints[i].alt!!, minA, maxA))
+                path.lineTo(getX(altPoints[i].timestamp), getAltY(altPoints[i].alt!!, minA, maxA))
             }
             canvas.drawPath(path, altPaint)
         }
 
         val textPaint = Paint().apply {
             color = Color.WHITE
-            textSize = 12f
+            textSize = 10f
             isFakeBoldText = true
         }
         
-        // Temperature fixed in Celsius
-        canvas.drawText("${String.format("%.1f", maxT)}°C", 5f, padding, textPaint)
-        canvas.drawText("${String.format("%.1f", minT)}°C", 5f, height - 5f, textPaint)
+        // Temperature Labels (Top half)
+        canvas.drawText("${String.format("%.1f", maxT)}°C", 5f, padding + 10f, textPaint)
+        canvas.drawText("${String.format("%.1f", minT)}°C", 5f, padding + halfH, textPaint)
         
         textPaint.textAlign = Paint.Align.RIGHT
-        // Altitude toggleable between m and ft
+        // Altitude Labels (Bottom half)
         val altMaxStr = if (isMetric) String.format("%.0fm", maxA) else String.format("%.0fft", maxA * 3.28084f)
         val altMinStr = if (isMetric) String.format("%.0fm", minA) else String.format("%.0fft", minA * 3.28084f)
 
-        canvas.drawText(altMaxStr, width - 5f, padding, textPaint)
+        canvas.drawText(altMaxStr, width - 5f, padding + halfH + 10f, textPaint)
         canvas.drawText(altMinStr, width - 5f, height - 5f, textPaint)
+
+        // Draw separator line
+        val sepPaint = Paint().apply {
+            color = Color.DKGRAY
+            strokeWidth = 1f
+            style = Paint.Style.STROKE
+        }
+        canvas.drawLine(padding, padding + halfH, width - padding, padding + halfH, sepPaint)
 
         return bitmap
     }
