@@ -67,6 +67,7 @@ class BleForegroundService : Service() {
         const val PREFS_NAME = "ESP32Prefs"
         const val KEY_IS_METRIC = "is_metric"
         const val KEY_IS_CELSIUS = "is_celsius"
+        const val KEY_SHOW_ALT_ONLY = "show_alt_only"
         const val KEY_LOCKED_DEVICE_ID = "locked_device_id"
         const val KEY_IS_LOCKED = "is_locked"
     }
@@ -278,99 +279,144 @@ class BleForegroundService : Service() {
         val chartStartTime = Math.max(now - HISTORY_LIMIT_MS, dataStartTime)
         val totalRange = Math.max(10000L, now - chartStartTime)
 
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val isMetric = prefs.getBoolean(KEY_IS_METRIC, true)
+        val isCelsius = prefs.getBoolean(KEY_IS_CELSIUS, true)
+        val showAltOnly = prefs.getBoolean(KEY_SHOW_ALT_ONLY, false)
+
         val tempPoints = dataHistory.filter { it.temp != null && it.timestamp >= chartStartTime }
         val altPoints = dataHistory.filter { it.alt != null && it.timestamp >= chartStartTime }
         
         if (tempPoints.isEmpty() && altPoints.isEmpty()) return bitmap
 
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val isMetric = prefs.getBoolean(KEY_IS_METRIC, true)
-        val isCelsius = prefs.getBoolean(KEY_IS_CELSIUS, true)
-
-        fun getAdjustedBounds(points: List<Float>, defaultMin: Float, defaultMax: Float, minBuffer: Float): Pair<Float, Float> {
+        fun getAdjustedBounds(points: List<Float>, defaultMin: Float, defaultMax: Float, minBuffer: Float, bufferPercent: Float): Pair<Float, Float> {
             if (points.isEmpty()) return defaultMin to defaultMax
             val min = points.min()
             val max = points.max()
             val range = (max - min).coerceAtLeast(minBuffer)
-            return (min - range * 0.1f) to (max + range * 0.1f)
+            return (min - range * bufferPercent) to (max + range * bufferPercent)
         }
-
-        val (minT, maxT) = getAdjustedBounds(tempPoints.map { it.temp!! }, 0f, 100f, 2f)
-        val (minA, maxA) = getAdjustedBounds(altPoints.map { it.alt!! }, 0f, 10000f, 20f)
 
         val padding = 20f
         val chartW = width - 2 * padding
-        val halfH = (height - 2 * padding) / 2f
 
         fun getX(ts: Long) = padding + ((ts - chartStartTime).toFloat() / totalRange) * chartW
-        
-        // Temperature on TOP half
-        fun getTempY(value: Float, min: Float, max: Float): Float {
-            val range = if (max == min) 1f else max - min
-            return padding + halfH - ((value - min) / range) * halfH
-        }
-
-        // Altitude on BOTTOM half
-        fun getAltY(value: Float, min: Float, max: Float): Float {
-            val range = if (max == min) 1f else max - min
-            return height - padding - ((value - min) / range) * halfH
-        }
-
-        val tempPaint = Paint().apply {
-            color = Color.MAGENTA
-            strokeWidth = 3f
-            style = Paint.Style.STROKE
-            isAntiAlias = true
-            strokeJoin = Paint.Join.ROUND
-            strokeCap = Paint.Cap.ROUND
-        }
-        if (tempPoints.size >= 2) {
-            val path = Path()
-            path.moveTo(getX(tempPoints[0].timestamp), getTempY(tempPoints[0].temp!!, minT, maxT))
-            for (i in 1 until tempPoints.size) {
-                path.lineTo(getX(tempPoints[i].timestamp), getTempY(tempPoints[i].temp!!, minT, maxT))
-            }
-            canvas.drawPath(path, tempPaint)
-        }
-
-        val altPaint = Paint().apply {
-            color = Color.rgb(135, 206, 235)
-            strokeWidth = 3f
-            style = Paint.Style.STROKE
-            isAntiAlias = true
-            strokeJoin = Paint.Join.ROUND
-            strokeCap = Paint.Cap.ROUND
-        }
-        if (altPoints.size >= 2) {
-            val path = Path()
-            path.moveTo(getX(altPoints[0].timestamp), getAltY(altPoints[0].alt!!, minA, maxA))
-            for (i in 1 until altPoints.size) {
-                path.lineTo(getX(altPoints[i].timestamp), getAltY(altPoints[i].alt!!, minA, maxA))
-            }
-            canvas.drawPath(path, altPaint)
-        }
 
         val textPaint = Paint().apply {
             color = Color.WHITE
             textSize = 10f
             isFakeBoldText = true
         }
-        
-        // Temperature Labels (Top half)
-        val tempMaxStr = if (isCelsius) String.format("%.1f°C", maxT) else String.format("%.1f°F", maxT * 9/5 + 32)
-        val tempMinStr = if (isCelsius) String.format("%.1f°C", minT) else String.format("%.1f°F", minT * 9/5 + 32)
-        canvas.drawText(tempMaxStr, 5f, padding + 10f, textPaint)
-        canvas.drawText(tempMinStr, 5f, padding + halfH, textPaint)
-        
-        textPaint.textAlign = Paint.Align.RIGHT
-        // Altitude Labels (Bottom half)
-        val altMaxStr = if (isMetric) String.format("%.0fm", maxA) else String.format("%.0fft", maxA * 3.28084f)
-        val altMinStr = if (isMetric) String.format("%.0fm", minA) else String.format("%.0fft", minA * 3.28084f)
 
-        canvas.drawText(altMaxStr, width - 5f, padding + halfH + 10f, textPaint)
-        canvas.drawText(altMinStr, width - 5f, height - padding, textPaint)
+        if (showAltOnly) {
+            // Full screen Altitude chart with larger buffer
+            val (minA, maxA) = getAdjustedBounds(altPoints.map { it.alt!! }, 0f, 10000f, 20f, 0.3f)
+            val chartH = height - 2 * padding - 15f // leaving space for time info
 
-        // Time Info
+            fun getFullAltY(value: Float, min: Float, max: Float): Float {
+                val range = if (max == min) 1f else max - min
+                return height - padding - 15f - ((value - min) / range) * chartH
+            }
+
+            val altPaint = Paint().apply {
+                color = Color.rgb(135, 206, 235)
+                strokeWidth = 3f
+                style = Paint.Style.STROKE
+                isAntiAlias = true
+                strokeJoin = Paint.Join.ROUND
+                strokeCap = Paint.Cap.ROUND
+            }
+            if (altPoints.size >= 2) {
+                val path = Path()
+                path.moveTo(getX(altPoints[0].timestamp), getFullAltY(altPoints[0].alt!!, minA, maxA))
+                for (i in 1 until altPoints.size) {
+                    path.lineTo(getX(altPoints[i].timestamp), getFullAltY(altPoints[i].alt!!, minA, maxA))
+                }
+                canvas.drawPath(path, altPaint)
+            }
+
+            textPaint.textAlign = Paint.Align.RIGHT
+            val altMaxStr = if (isMetric) String.format("%.0fm", maxA) else String.format("%.0fft", maxA * 3.28084f)
+            val altMinStr = if (isMetric) String.format("%.0fm", minA) else String.format("%.0fft", minA * 3.28084f)
+            canvas.drawText(altMaxStr, width - 5f, padding + 10f, textPaint)
+            canvas.drawText(altMinStr, width - 5f, height - padding - 15f, textPaint)
+
+        } else {
+            // Split screen chart with small buffer
+            val (minT, maxT) = getAdjustedBounds(tempPoints.map { it.temp!! }, 0f, 100f, 2f, 0.1f)
+            val (minA, maxA) = getAdjustedBounds(altPoints.map { it.alt!! }, 0f, 10000f, 20f, 0.1f)
+            val halfH = (height - 2 * padding - 15f) / 2f
+
+            // Temperature on TOP half
+            fun getTempY(value: Float, min: Float, max: Float): Float {
+                val range = if (max == min) 1f else max - min
+                return padding + halfH - ((value - min) / range) * halfH
+            }
+
+            // Altitude on BOTTOM half
+            fun getAltY(value: Float, min: Float, max: Float): Float {
+                val range = if (max == min) 1f else max - min
+                return height - padding - 15f - ((value - min) / range) * halfH
+            }
+
+            val tempPaint = Paint().apply {
+                color = Color.MAGENTA
+                strokeWidth = 3f
+                style = Paint.Style.STROKE
+                isAntiAlias = true
+                strokeJoin = Paint.Join.ROUND
+                strokeCap = Paint.Cap.ROUND
+            }
+            if (tempPoints.size >= 2) {
+                val path = Path()
+                path.moveTo(getX(tempPoints[0].timestamp), getTempY(tempPoints[0].temp!!, minT, maxT))
+                for (i in 1 until tempPoints.size) {
+                    path.lineTo(getX(tempPoints[i].timestamp), getTempY(tempPoints[i].temp!!, minT, maxT))
+                }
+                canvas.drawPath(path, tempPaint)
+            }
+
+            val altPaint = Paint().apply {
+                color = Color.rgb(135, 206, 235)
+                strokeWidth = 3f
+                style = Paint.Style.STROKE
+                isAntiAlias = true
+                strokeJoin = Paint.Join.ROUND
+                strokeCap = Paint.Cap.ROUND
+            }
+            if (altPoints.size >= 2) {
+                val path = Path()
+                path.moveTo(getX(altPoints[0].timestamp), getAltY(altPoints[0].alt!!, minA, maxA))
+                for (i in 1 until altPoints.size) {
+                    path.lineTo(getX(altPoints[i].timestamp), getAltY(altPoints[i].alt!!, minA, maxA))
+                }
+                canvas.drawPath(path, altPaint)
+            }
+
+            // Temperature Labels
+            textPaint.textAlign = Paint.Align.LEFT
+            val tempMaxStr = if (isCelsius) String.format("%.1f°C", maxT) else String.format("%.1f°F", maxT * 9/5 + 32)
+            val tempMinStr = if (isCelsius) String.format("%.1f°C", minT) else String.format("%.1f°F", minT * 9/5 + 32)
+            canvas.drawText(tempMaxStr, 5f, padding + 10f, textPaint)
+            canvas.drawText(tempMinStr, 5f, padding + halfH, textPaint)
+            
+            // Altitude Labels
+            textPaint.textAlign = Paint.Align.RIGHT
+            val altMaxStr = if (isMetric) String.format("%.0fm", maxA) else String.format("%.0fft", maxA * 3.28084f)
+            val altMinStr = if (isMetric) String.format("%.0fm", minA) else String.format("%.0fft", minA * 3.28084f)
+            canvas.drawText(altMaxStr, width - 5f, padding + halfH + 10f, textPaint)
+            canvas.drawText(altMinStr, width - 5f, height - padding - 15f, textPaint)
+
+            // Draw separator line
+            val sepPaint = Paint().apply {
+                color = Color.DKGRAY
+                strokeWidth = 1f
+                style = Paint.Style.STROKE
+            }
+            canvas.drawLine(padding, padding + halfH, width - padding, padding + halfH, sepPaint)
+        }
+
+        // Time Info (drawn at the very bottom)
         val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
         val elapsedMs = now - dataStartTime
         
@@ -389,14 +435,6 @@ class BleForegroundService : Service() {
             textPaint.textAlign = Paint.Align.RIGHT
             canvas.drawText("Now: ${timeFormat.format(Date(now))}", width - 5f, height - 5f, textPaint)
         }
-
-        // Draw separator line
-        val sepPaint = Paint().apply {
-            color = Color.DKGRAY
-            strokeWidth = 1f
-            style = Paint.Style.STROKE
-        }
-        canvas.drawLine(padding, padding + halfH, width - padding, padding + halfH, sepPaint)
 
         return bitmap
     }

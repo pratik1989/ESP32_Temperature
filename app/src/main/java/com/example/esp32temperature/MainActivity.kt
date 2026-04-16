@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private var chartBitmap by mutableStateOf<Bitmap?>(null)
     private var isMetric by mutableStateOf(true)
     private var isCelsius by mutableStateOf(true)
+    private var showAltOnly by mutableStateOf(false)
     private var isLocked by mutableStateOf(false)
 
     private val dataReceiver = object : BroadcastReceiver() {
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
         isMetric = prefs.getBoolean(BleForegroundService.KEY_IS_METRIC, true)
         isCelsius = prefs.getBoolean(BleForegroundService.KEY_IS_CELSIUS, true)
+        showAltOnly = prefs.getBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, false)
         isLocked = prefs.getBoolean(BleForegroundService.KEY_IS_LOCKED, false)
 
         setContent {
@@ -119,9 +121,11 @@ class MainActivity : ComponentActivity() {
                         bitmap = chartBitmap,
                         isMetric = isMetric,
                         isCelsius = isCelsius,
+                        showAltOnly = showAltOnly,
                         isLocked = isLocked,
                         onUnitToggle = { toggleUnits() },
                         onTempToggle = { toggleTempUnits() },
+                        onAltOnlyToggle = { toggleAltOnly() },
                         onLockToggle = { toggleLock() },
                         onStartClick = { startBleService() },
                         onStopClick = { stopBleService() },
@@ -147,6 +151,16 @@ class MainActivity : ComponentActivity() {
         getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(BleForegroundService.KEY_IS_CELSIUS, isCelsius)
+            .apply()
+        
+        broadcastUpdate()
+    }
+
+    private fun toggleAltOnly() {
+        showAltOnly = !showAltOnly
+        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, showAltOnly)
             .apply()
         
         broadcastUpdate()
@@ -275,9 +289,11 @@ fun MainScreen(
     bitmap: Bitmap?,
     isMetric: Boolean,
     isCelsius: Boolean,
+    showAltOnly: Boolean,
     isLocked: Boolean,
     onUnitToggle: () -> Unit,
     onTempToggle: () -> Unit,
+    onAltOnlyToggle: () -> Unit,
     onLockToggle: () -> Unit,
     onStartClick: () -> Unit, 
     onStopClick: () -> Unit,
@@ -436,7 +452,7 @@ fun MainScreen(
                 Switch(
                     checked = !isMetric, 
                     onCheckedChange = { onUnitToggle() }, 
-                    modifier = Modifier.scale(0.8f).padding(start = 4.dp)
+                    modifier = Modifier.scale(0.7f).padding(start = 2.dp)
                 )
             }
 
@@ -445,7 +461,16 @@ fun MainScreen(
                 Switch(
                     checked = !isCelsius, 
                     onCheckedChange = { onTempToggle() }, 
-                    modifier = Modifier.scale(0.8f).padding(start = 4.dp)
+                    modifier = Modifier.scale(0.7f).padding(start = 2.dp)
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "Alt Only", style = MaterialTheme.typography.bodySmall)
+                Switch(
+                    checked = showAltOnly, 
+                    onCheckedChange = { onAltOnlyToggle() }, 
+                    modifier = Modifier.scale(0.7f).padding(start = 2.dp)
                 )
             }
 
@@ -454,7 +479,7 @@ fun MainScreen(
                 Switch(
                     checked = isLocked, 
                     onCheckedChange = { onLockToggle() }, 
-                    modifier = Modifier.scale(0.8f).padding(start = 4.dp)
+                    modifier = Modifier.scale(0.7f).padding(start = 2.dp)
                 )
             }
         }
