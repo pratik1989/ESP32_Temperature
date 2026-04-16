@@ -166,7 +166,10 @@ class BleForegroundService : Service() {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 broadcastStatus("Connected", gatt.device.address)
                 connectionStartTime = System.currentTimeMillis()
-                gatt.discoverServices()
+                // Slow down connection: Wait 1 second before requesting MTU
+                handler.postDelayed({
+                    gatt.requestMtu(128) // Smaller MTU for weak devices
+                }, 1000)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 if (gatt == bluetoothGatt) {
                     bluetoothGatt?.close()
@@ -181,17 +184,27 @@ class BleForegroundService : Service() {
             }
         }
 
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            // Further slow down: Wait 1 second after MTU change before service discovery
+            handler.postDelayed({
+                gatt.discoverServices()
+            }, 1000)
+        }
+
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val service = gatt.getService(SERVICE_UUID)
                 val characteristic = service?.getCharacteristic(CHARACTERISTIC_UUID)
                 if (characteristic != null) {
-                    gatt.setCharacteristicNotification(characteristic, true)
-                    val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG)
-                    if (descriptor != null) {
-                        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                        gatt.writeDescriptor(descriptor)
-                    }
+                    // Slow down: Wait before setting notification
+                    handler.postDelayed({
+                        gatt.setCharacteristicNotification(characteristic, true)
+                        val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG)
+                        if (descriptor != null) {
+                            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            gatt.writeDescriptor(descriptor)
+                        }
+                    }, 500)
                 }
             }
         }
