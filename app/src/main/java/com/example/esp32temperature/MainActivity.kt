@@ -21,6 +21,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -35,6 +36,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,6 +67,9 @@ class MainActivity : ComponentActivity() {
     
     private var tempSource by mutableIntStateOf(0) // 0: DS18B20, 1: BMP280
     private var altSource by mutableIntStateOf(0)  // 0: GPS, 1: BMP280
+
+    private var tempOffset by mutableFloatStateOf(0f)
+    private var altOffset by mutableFloatStateOf(0f)
 
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -112,6 +117,8 @@ class MainActivity : ComponentActivity() {
         isLocked = prefs.getBoolean(BleForegroundService.KEY_IS_LOCKED, false)
         tempSource = prefs.getInt(BleForegroundService.KEY_TEMP_SOURCE, 0)
         altSource = prefs.getInt(BleForegroundService.KEY_ALT_SOURCE, 0)
+        tempOffset = prefs.getFloat(BleForegroundService.KEY_TEMP_OFFSET, 0f)
+        altOffset = prefs.getFloat(BleForegroundService.KEY_ALT_OFFSET, 0f)
 
         setContent {
             ESP32TemperatureTheme {
@@ -134,12 +141,16 @@ class MainActivity : ComponentActivity() {
                         isLocked = isLocked,
                         tempSource = tempSource,
                         altSource = altSource,
+                        tempOffset = tempOffset,
+                        altOffset = altOffset,
                         onUnitToggle = { toggleUnits() },
                         onTempToggle = { toggleTempUnits() },
                         onAltOnlyToggle = { toggleAltOnly() },
                         onLockToggle = { toggleLock() },
                         onTempSourceChange = { updateTempSource(it) },
                         onAltSourceChange = { updateAltSource(it) },
+                        onTempOffsetChange = { updateTempOffset(it) },
+                        onAltOffsetChange = { updateAltOffset(it) },
                         onStartClick = { startBleService() },
                         onStopClick = { stopBleService() },
                         onDmd2Click = { openDmd2() }
@@ -163,6 +174,24 @@ class MainActivity : ComponentActivity() {
         getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putInt(BleForegroundService.KEY_ALT_SOURCE, source)
+            .apply()
+        broadcastUpdate()
+    }
+
+    private fun updateTempOffset(offset: Float) {
+        tempOffset = offset
+        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(BleForegroundService.KEY_TEMP_OFFSET, offset)
+            .apply()
+        broadcastUpdate()
+    }
+
+    private fun updateAltOffset(offset: Float) {
+        altOffset = offset
+        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(BleForegroundService.KEY_ALT_OFFSET, offset)
             .apply()
         broadcastUpdate()
     }
@@ -327,12 +356,16 @@ fun MainScreen(
     isLocked: Boolean,
     tempSource: Int,
     altSource: Int,
+    tempOffset: Float,
+    altOffset: Float,
     onUnitToggle: () -> Unit,
     onTempToggle: () -> Unit,
     onAltOnlyToggle: () -> Unit,
     onLockToggle: () -> Unit,
     onTempSourceChange: (Int) -> Unit,
     onAltSourceChange: (Int) -> Unit,
+    onTempOffsetChange: (Float) -> Unit,
+    onAltOffsetChange: (Float) -> Unit,
     onStartClick: () -> Unit, 
     onStopClick: () -> Unit,
     onDmd2Click: () -> Unit
@@ -428,6 +461,38 @@ fun MainScreen(
                     )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Offset Boxes Aligned Horizontally
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            var tempOffText by remember(tempOffset) { mutableStateOf(tempOffset.toString()) }
+            OutlinedTextField(
+                value = tempOffText,
+                onValueChange = {
+                    tempOffText = it
+                    it.toFloatOrNull()?.let { f -> onTempOffsetChange(f) }
+                },
+                label = { Text("Temp Offset") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f)
+            )
+
+            var altOffText by remember(altOffset) { mutableStateOf(altOffset.toString()) }
+            OutlinedTextField(
+                value = altOffText,
+                onValueChange = {
+                    altOffText = it
+                    it.toFloatOrNull()?.let { f -> onAltOffsetChange(f) }
+                },
+                label = { Text("Alt Offset (ft)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f)
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))

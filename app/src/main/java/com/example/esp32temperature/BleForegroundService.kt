@@ -58,7 +58,8 @@ class BleForegroundService : Service() {
 
         const val ACTION_UPDATE_DATA = "com.example.esp32temperature.UPDATE_DATA"
         const val ACTION_CONNECTION_STATUS = "com.example.esp32temperature.CONNECTION_STATUS"
-        
+        const val ACTION_REFRESH = "com.example.esp32temperature.REFRESH"
+
         const val EXTRA_DS_TEMP = "EXTRA_DS_TEMP"
         const val EXTRA_BMP_TEMP = "EXTRA_BMP_TEMP"
         const val EXTRA_BMP_ALT = "EXTRA_BMP_ALT"
@@ -78,6 +79,9 @@ class BleForegroundService : Service() {
         
         const val KEY_TEMP_SOURCE = "temp_source" // 0: DS18B20, 1: BMP280
         const val KEY_ALT_SOURCE = "alt_source"   // 0: GPS, 1: BMP280
+
+        const val KEY_TEMP_OFFSET = "temp_offset"
+        const val KEY_ALT_OFFSET = "alt_offset"
     }
 
     private val watchdogRunnable = object : Runnable {
@@ -102,6 +106,11 @@ class BleForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_REFRESH) {
+            updateWidgetAndBroadcast()
+            return START_STICKY
+        }
+
         shouldAutoReconnect = true
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -115,13 +124,16 @@ class BleForegroundService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-        
+
         handler.post { 
             if (!checkAndConnectIfAlreadyPaired()) {
                 startScanning() 
             }
         }
         handler.post { startLocationUpdates() }
+        
+        // Push initial blank chart
+        handler.post { updateWidgetAndBroadcast() }
         
         return START_STICKY
     }
@@ -182,6 +194,21 @@ class BleForegroundService : Service() {
         } catch (e: SecurityException) {
             Log.e(TAG, "Location permission missing")
         }
+    }
+
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            if (location.hasAltitude()) {
+                val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val aOffset = prefs.getFloat(KEY_ALT_OFFSET, 0f)
+                val calibratedAlt = location.altitude + (aOffset / 3.28084f)
+                gpsAlt = String.format("%.1f", calibratedAlt)
+                recordData()
+            }
+        }
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
     }
 
     private fun startScanning() {
@@ -350,38 +377,35 @@ class BleForegroundService : Service() {
             if (characteristic.uuid == CHARACTERISTIC_UUID) {
                 val data = characteristic.value?.let { String(it) } ?: ""
                 Log.v(TAG, "Data received: $data")
+                
+                val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val tOffset = prefs.getFloat(KEY_TEMP_OFFSET, 0f)
+                val aOffset = prefs.getFloat(KEY_ALT_OFFSET, 0f)
+                
                 if (data.contains(",")) {
                     val parts = data.split(",")
                     if (parts.size >= 3) {
-                        dsTemp = parts[0]
-                        bmpTemp = parts[1]
-                        // ESP32 sends altitude in feet, convert to meters for internal consistency (as app expects meters)
+                        val rawDs = parts[0].toFloatOrNull()
+                        dsTemp = if (rawDs != null && rawDs != -127f) (rawDs + tOffset).toString() else parts[0]
+                        
+                        val rawBmpT = parts[1].toFloatOrNull()
+                        bmpTemp = if (rawBmpT != null) (rawBmpT + tOffset).toString() else parts[1]
+                        
                         val altInFeet = parts[2].toFloatOrNull()
                         bmpAlt = if (altInFeet != null) {
-                            String.format("%.1f", altInFeet / 3.28084f)
+                            String.format("%.1f", (altInFeet + aOffset) / 3.28084f)
                         } else {
                             parts[2] // Keep "nan" or other string
                         }
                     }
                 } else {
-                    dsTemp = data
+                    val rawDs = data.toFloatOrNull()
+                    dsTemp = if (rawDs != null && rawDs != -127f) (rawDs + tOffset).toString() else data
                 }
                 lastUpdateTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                 recordData()
             }
         }
-    }
-
-    private val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            if (location.hasAltitude()) {
-                gpsAlt = String.format("%.1f", location.altitude)
-                recordData()
-            }
-        }
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
     }
 
     private fun recordData() {
@@ -400,7 +424,7 @@ class BleForegroundService : Service() {
     private fun updateWidgetAndBroadcast() {
         val chartBitmap = drawChart()
         val stream = java.io.ByteArrayOutputStream()
-        chartBitmap?.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        chartBitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
         val chartBytes = stream.toByteArray()
 
         val intent = Intent(ACTION_UPDATE_DATA)
@@ -437,19 +461,19 @@ class BleForegroundService : Service() {
         widgetIntent.putExtra(EXTRA_STATUS, status)
         widgetIntent.putExtra(EXTRA_DEVICE_ID, deviceId)
         sendBroadcast(widgetIntent)
+        
+        // Also update the chart to show current status (e.g. blank chart when disconnected)
+        updateWidgetAndBroadcast()
     }
 
-    private fun drawChart(): Bitmap? {
-        if (dataHistory.size < 2) return null
+    private fun drawChart(): Bitmap {
         val width = 600
         val height = 250
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         
-        // Background - Transparent (No drawColor)
-
         val now = System.currentTimeMillis()
-        val chartStartTime = Math.max(now - HISTORY_LIMIT_MS, dataHistory.first().timestamp)
+        val chartStartTime = if (dataHistory.isNotEmpty()) Math.max(now - HISTORY_LIMIT_MS, dataHistory.first().timestamp) else now - HISTORY_LIMIT_MS
         val totalRange = Math.max(10000L, now - chartStartTime)
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -457,6 +481,7 @@ class BleForegroundService : Service() {
         val altSource = prefs.getInt(KEY_ALT_SOURCE, 0)
         val isMetric = prefs.getBoolean(KEY_IS_METRIC, true)
         val isCelsius = prefs.getBoolean(KEY_IS_CELSIUS, true)
+        val showAltOnly = prefs.getBoolean(KEY_SHOW_ALT_ONLY, false)
 
         // Filter valid points
         val tempPoints = dataHistory.filter { it.timestamp >= chartStartTime }.map { 
@@ -471,19 +496,15 @@ class BleForegroundService : Service() {
             it.timestamp to if (isFault) null else aValue
         }.filter { it.second != null }
 
-        if (tempPoints.isEmpty() && altPoints.isEmpty()) return bitmap
-
         val padding = 5f
-        val textPadding = 0f // No padding for chart to use full width
-        val chartW = width.toFloat()
         val middleY = height / 2f
         
         // Sections
-        val topChartTop = padding
-        val topChartBottom = middleY - 5f
+        val topChartTop = if (showAltOnly) 0f else padding
+        val topChartBottom = if (showAltOnly) 0f else middleY - 5f
         val topChartHeight = topChartBottom - topChartTop
 
-        val bottomChartTop = middleY + 5f
+        val bottomChartTop = if (showAltOnly) padding else middleY + 5f
         val bottomChartBottom = height - padding
         val bottomChartHeight = bottomChartBottom - bottomChartTop
 
@@ -497,64 +518,66 @@ class BleForegroundService : Service() {
             strokeCap = Paint.Cap.ROUND
         }
 
-        // Draw middle separator
-        paint.color = Color.GRAY
-        paint.alpha = 100
-        paint.strokeWidth = 1f
-        canvas.drawLine(0f, middleY, width.toFloat(), middleY, paint)
+        if (!showAltOnly) {
+            // Draw middle separator (White as requested)
+            paint.color = Color.WHITE
+            paint.alpha = 100
+            paint.strokeWidth = 1f
+            canvas.drawLine(0f, middleY, width.toFloat(), middleY, paint)
 
-        val textPaint = Paint().apply {
-            color = Color.WHITE
-            textSize = 12f
-            isAntiAlias = true
-            typeface = Typeface.DEFAULT_BOLD
-            // Add a small shadow for better readability over the chart lines
-            setShadowLayer(3f, 0f, 0f, Color.BLACK)
-        }
-
-        if (tempPoints.size >= 2) {
-            val minT = tempPoints.minOf { it.second!! }
-            val maxT = tempPoints.maxOf { it.second!! }
-            
-            // scaling to center: add generous buffer (30% of range)
-            val bufferT = ((maxT - minT) * 0.3f).coerceAtLeast(2f)
-            val drawMinT = minT - bufferT
-            val drawMaxT = maxT + bufferT
-            val rangeT = (drawMaxT - drawMinT)
-
-            paint.color = Color.MAGENTA
-            paint.strokeWidth = 8f
-            val path = Path()
-            fun getY(t: Float) = topChartBottom - ((t - drawMinT) / rangeT) * topChartHeight
-            
-            path.moveTo(getX(tempPoints[0].first), getY(tempPoints[0].second!!))
-            for (i in 1 until tempPoints.size) {
-                val x1 = getX(tempPoints[i - 1].first)
-                val y1 = getY(tempPoints[i - 1].second!!)
-                val x2 = getX(tempPoints[i].first)
-                val y2 = getY(tempPoints[i].second!!)
-                
-                // Smooth curve using cubicTo
-                path.cubicTo((x1 + x2) / 2, y1, (x1 + x2) / 2, y2, x2, y2)
+            val textPaint = Paint().apply {
+                color = Color.WHITE
+                textSize = 12f
+                isAntiAlias = true
+                typeface = Typeface.DEFAULT_BOLD
+                setShadowLayer(3f, 0f, 0f, Color.BLACK)
             }
-            canvas.drawPath(path, paint)
 
-            // Temp Legends - Overlayed on the left
-            val formatTemp = { t: Float -> 
-                val displayT = if (isCelsius) t else (t * 9/5 + 32)
-                val unit = if (isCelsius) "C" else "F"
-                "${ceil(displayT.toDouble()).toInt()}$unit"
+            if (tempPoints.size >= 2) {
+                val minT = tempPoints.minOf { it.second!! }
+                val maxT = tempPoints.maxOf { it.second!! }
+
+                val bufferT = ((maxT - minT) * 0.3f).coerceAtLeast(2f)
+                val drawMinT = minT - bufferT
+                val drawMaxT = maxT + bufferT
+                val rangeT = (drawMaxT - drawMinT)
+
+                paint.color = Color.MAGENTA
+                paint.strokeWidth = 8f
+                val path = Path()
+                fun getY(t: Float) = topChartBottom - ((t - drawMinT) / rangeT) * topChartHeight
+
+                path.moveTo(getX(tempPoints[0].first), getY(tempPoints[0].second!!))
+                for (i in 1 until tempPoints.size) {
+                    val x1 = getX(tempPoints[i - 1].first)
+                    val y1 = getY(tempPoints[i - 1].second!!)
+                    val x2 = getX(tempPoints[i].first)
+                    val y2 = getY(tempPoints[i].second!!)
+                    path.cubicTo((x1 + x2) / 2, y1, (x1 + x2) / 2, y2, x2, y2)
+                }
+                canvas.drawPath(path, paint)
+
+                val formatTemp = { t: Float ->
+                    val displayT = if (isCelsius) t else (t * 9/5 + 32)
+                    val unit = if (isCelsius) "C" else "F"
+                    "${ceil(displayT.toDouble()).toInt()}$unit"
+                }
+                textPaint.textAlign = Paint.Align.LEFT
+                canvas.drawText(formatTemp(maxT), 5f, topChartTop + 12f, textPaint)
+                canvas.drawText(formatTemp(minT), 5f, topChartBottom - 2f, textPaint)
+            } else {
+                // Placeholder legends for Temperature
+                val unit = if (isCelsius) "°C" else "°F"
+                textPaint.textAlign = Paint.Align.LEFT
+                canvas.drawText("--$unit", 5f, topChartTop + 12f, textPaint)
+                canvas.drawText("--$unit", 5f, topChartBottom - 2f, textPaint)
             }
-            textPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText(formatTemp(maxT), 5f, topChartTop + 12f, textPaint)
-            canvas.drawText(formatTemp(minT), 5f, topChartBottom - 2f, textPaint)
         }
 
         if (altPoints.size >= 2) {
             val minA = altPoints.minOf { it.second!! }
             val maxA = altPoints.maxOf { it.second!! }
             
-            // scaling to center: add generous buffer (30% of range)
             val bufferA = ((maxA - minA) * 0.3f).coerceAtLeast(10f)
             val drawMinA = minA - bufferA
             val drawMaxA = maxA + bufferA
@@ -571,21 +594,51 @@ class BleForegroundService : Service() {
                 val y1 = getY(altPoints[i - 1].second!!)
                 val x2 = getX(altPoints[i].first)
                 val y2 = getY(altPoints[i].second!!)
-                
-                // Smooth curve using cubicTo
                 path.cubicTo((x1 + x2) / 2, y1, (x1 + x2) / 2, y2, x2, y2)
             }
             canvas.drawPath(path, paint)
 
-            // Alt Legends - Overlayed on the right
             val formatAlt = { a: Float -> 
                 val displayA = if (isMetric) a else (a * 3.28084f)
                 val unit = if (isMetric) "m" else "ft"
                 "${ceil(displayA.toDouble()).toInt()}$unit"
             }
+            val textPaint = Paint().apply {
+                color = Color.WHITE
+                textSize = 12f
+                isAntiAlias = true
+                typeface = Typeface.DEFAULT_BOLD
+                setShadowLayer(3f, 0f, 0f, Color.BLACK)
+            }
             textPaint.textAlign = Paint.Align.RIGHT
             canvas.drawText(formatAlt(maxA), width - 5f, bottomChartTop + 12f, textPaint)
             canvas.drawText(formatAlt(minA), width - 5f, bottomChartBottom - 2f, textPaint)
+        } else {
+            // Placeholder legends for Altitude
+            val unit = if (isMetric) "m" else "ft"
+            val textPaint = Paint().apply {
+                color = Color.WHITE
+                textSize = 12f
+                isAntiAlias = true
+                typeface = Typeface.DEFAULT_BOLD
+                setShadowLayer(3f, 0f, 0f, Color.BLACK)
+            }
+            textPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("--$unit", width - 5f, bottomChartTop + 12f, textPaint)
+            canvas.drawText("--$unit", width - 5f, bottomChartBottom - 2f, textPaint)
+        }
+
+        // Show "Waiting for data..." if no points are available yet
+        if (tempPoints.size < 2 && altPoints.size < 2) {
+            val waitPaint = Paint().apply {
+                color = Color.WHITE
+                textSize = 24f
+                isAntiAlias = true
+                textAlign = Paint.Align.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                setShadowLayer(3f, 0f, 0f, Color.BLACK)
+            }
+            canvas.drawText("Waiting for data...", width / 2f, middleY + 8f, waitPaint)
         }
 
         return bitmap
