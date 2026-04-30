@@ -23,11 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -47,18 +43,28 @@ import androidx.core.content.ContextCompat
 import com.example.esp32temperature.ui.theme.ESP32TemperatureTheme
 import java.text.NumberFormat
 import java.util.*
+import kotlin.math.ceil
 
 class MainActivity : ComponentActivity() {
 
     private var connectionStatus by mutableStateOf("Disconnected")
     private var deviceId by mutableStateOf("")
-    private var temperature by mutableStateOf("--")
-    private var altitude by mutableStateOf("--")
+    
+    private var dsTemp by mutableStateOf("--")
+    private var bmpTemp by mutableStateOf("--")
+    private var bmpAlt by mutableStateOf("--")
+    private var gpsAlt by mutableStateOf("--")
+    
+    private var lastUpdateTime by mutableStateOf("")
     private var chartBitmap by mutableStateOf<Bitmap?>(null)
+    
     private var isMetric by mutableStateOf(true)
     private var isCelsius by mutableStateOf(true)
     private var showAltOnly by mutableStateOf(false)
     private var isLocked by mutableStateOf(false)
+    
+    private var tempSource by mutableIntStateOf(0) // 0: DS18B20, 1: BMP280
+    private var altSource by mutableIntStateOf(0)  // 0: GPS, 1: BMP280
 
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -68,17 +74,15 @@ class MainActivity : ComponentActivity() {
                     deviceId = intent.getStringExtra(BleForegroundService.EXTRA_DEVICE_ID) ?: ""
                 }
                 BleForegroundService.ACTION_UPDATE_DATA -> {
-                    val newStatus = intent.getStringExtra(BleForegroundService.EXTRA_STATUS)
-                    if (newStatus != null) {
-                        connectionStatus = newStatus
-                    }
-                    val newId = intent.getStringExtra(BleForegroundService.EXTRA_DEVICE_ID)
-                    if (newId != null) {
-                        deviceId = newId
-                    }
+                    connectionStatus = intent.getStringExtra(BleForegroundService.EXTRA_STATUS) ?: connectionStatus
+                    deviceId = intent.getStringExtra(BleForegroundService.EXTRA_DEVICE_ID) ?: deviceId
                     
-                    temperature = intent.getStringExtra(BleForegroundService.EXTRA_TEMPERATURE) ?: "--"
-                    altitude = intent.getStringExtra(BleForegroundService.EXTRA_ALTITUDE) ?: "--"
+                    dsTemp = intent.getStringExtra(BleForegroundService.EXTRA_DS_TEMP) ?: "--"
+                    bmpTemp = intent.getStringExtra(BleForegroundService.EXTRA_BMP_TEMP) ?: "--"
+                    bmpAlt = intent.getStringExtra(BleForegroundService.EXTRA_BMP_ALT) ?: "--"
+                    gpsAlt = intent.getStringExtra(BleForegroundService.EXTRA_GPS_ALT) ?: "--"
+                    
+                    lastUpdateTime = intent.getStringExtra(BleForegroundService.EXTRA_LAST_UPDATE_TIME) ?: ""
                     
                     val byteArray = intent.getByteArrayExtra(BleForegroundService.EXTRA_CHART_BYTES)
                     if (byteArray != null) {
@@ -106,6 +110,8 @@ class MainActivity : ComponentActivity() {
         isCelsius = prefs.getBoolean(BleForegroundService.KEY_IS_CELSIUS, true)
         showAltOnly = prefs.getBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, false)
         isLocked = prefs.getBoolean(BleForegroundService.KEY_IS_LOCKED, false)
+        tempSource = prefs.getInt(BleForegroundService.KEY_TEMP_SOURCE, 0)
+        altSource = prefs.getInt(BleForegroundService.KEY_ALT_SOURCE, 0)
 
         setContent {
             ESP32TemperatureTheme {
@@ -116,17 +122,24 @@ class MainActivity : ComponentActivity() {
                     MainScreen(
                         status = connectionStatus,
                         id = deviceId,
-                        temp = temperature,
-                        alt = altitude,
+                        dsTemp = dsTemp,
+                        bmpTemp = bmpTemp,
+                        bmpAlt = bmpAlt,
+                        gpsAlt = gpsAlt,
+                        lastUpdate = lastUpdateTime,
                         bitmap = chartBitmap,
                         isMetric = isMetric,
                         isCelsius = isCelsius,
                         showAltOnly = showAltOnly,
                         isLocked = isLocked,
+                        tempSource = tempSource,
+                        altSource = altSource,
                         onUnitToggle = { toggleUnits() },
                         onTempToggle = { toggleTempUnits() },
                         onAltOnlyToggle = { toggleAltOnly() },
                         onLockToggle = { toggleLock() },
+                        onTempSourceChange = { updateTempSource(it) },
+                        onAltSourceChange = { updateAltSource(it) },
                         onStartClick = { startBleService() },
                         onStopClick = { stopBleService() },
                         onDmd2Click = { openDmd2() }
@@ -136,13 +149,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun updateTempSource(source: Int) {
+        tempSource = source
+        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(BleForegroundService.KEY_TEMP_SOURCE, source)
+            .apply()
+        broadcastUpdate()
+    }
+
+    private fun updateAltSource(source: Int) {
+        altSource = source
+        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(BleForegroundService.KEY_ALT_SOURCE, source)
+            .apply()
+        broadcastUpdate()
+    }
+
     private fun toggleUnits() {
         isMetric = !isMetric
         getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(BleForegroundService.KEY_IS_METRIC, isMetric)
             .apply()
-        
         broadcastUpdate()
     }
 
@@ -152,7 +182,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putBoolean(BleForegroundService.KEY_IS_CELSIUS, isCelsius)
             .apply()
-        
         broadcastUpdate()
     }
 
@@ -162,7 +191,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, showAltOnly)
             .apply()
-        
         broadcastUpdate()
     }
 
@@ -185,14 +213,18 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Sensor Unlocked", Toast.LENGTH_SHORT).show()
         }
         editor.apply()
+        broadcastUpdate()
     }
 
     private fun broadcastUpdate() {
         val intent = Intent(BleForegroundService.ACTION_UPDATE_DATA)
-        intent.putExtra(BleForegroundService.EXTRA_TEMPERATURE, temperature)
-        intent.putExtra(BleForegroundService.EXTRA_ALTITUDE, altitude)
+        intent.putExtra(BleForegroundService.EXTRA_DS_TEMP, dsTemp)
+        intent.putExtra(BleForegroundService.EXTRA_BMP_TEMP, bmpTemp)
+        intent.putExtra(BleForegroundService.EXTRA_BMP_ALT, bmpAlt)
+        intent.putExtra(BleForegroundService.EXTRA_GPS_ALT, gpsAlt)
         intent.putExtra(BleForegroundService.EXTRA_STATUS, connectionStatus)
         intent.putExtra(BleForegroundService.EXTRA_DEVICE_ID, deviceId)
+        intent.putExtra(BleForegroundService.EXTRA_LAST_UPDATE_TIME, lastUpdateTime)
         intent.setPackage(packageName)
         sendBroadcast(intent)
     }
@@ -267,40 +299,45 @@ class MainActivity : ComponentActivity() {
         
         connectionStatus = "Disconnected"
         deviceId = ""
-        temperature = "--"
-        altitude = "--"
+        dsTemp = "--"
+        bmpTemp = "--"
+        bmpAlt = "--"
+        gpsAlt = "--"
+        lastUpdateTime = ""
         chartBitmap = null
         
-        val updateIntent = Intent(BleForegroundService.ACTION_CONNECTION_STATUS)
-        updateIntent.putExtra(BleForegroundService.EXTRA_STATUS, "Disconnected")
-        updateIntent.putExtra(BleForegroundService.EXTRA_TEMPERATURE, "--")
-        updateIntent.putExtra(BleForegroundService.EXTRA_ALTITUDE, "--")
-        updateIntent.setPackage(packageName)
-        sendBroadcast(updateIntent)
+        broadcastUpdate()
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     status: String, 
     id: String, 
-    temp: String, 
-    alt: String, 
+    dsTemp: String,
+    bmpTemp: String,
+    bmpAlt: String,
+    gpsAlt: String,
+    lastUpdate: String,
     bitmap: Bitmap?,
     isMetric: Boolean,
     isCelsius: Boolean,
     showAltOnly: Boolean,
     isLocked: Boolean,
+    tempSource: Int,
+    altSource: Int,
     onUnitToggle: () -> Unit,
     onTempToggle: () -> Unit,
     onAltOnlyToggle: () -> Unit,
     onLockToggle: () -> Unit,
+    onTempSourceChange: (Int) -> Unit,
+    onAltSourceChange: (Int) -> Unit,
     onStartClick: () -> Unit, 
     onStopClick: () -> Unit,
     onDmd2Click: () -> Unit
 ) {
     var showInfoDialog by remember { mutableStateOf(false) }
-    val context = LocalContext.current
     val scrollState = rememberScrollState()
 
     Column(
@@ -322,121 +359,162 @@ fun MainScreen(
         
         if (id.isNotEmpty()) {
             Text(
-                text = "Device ID: $id",
+                text = "Device Address: $id",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        val displayTemp = if (temp == "--") "--" else {
-            val t = temp.toFloatOrNull() ?: 0f
-            if (isCelsius) String.format("%.1f °C", t) else String.format("%.1f °F", t * 9/5 + 32)
-        }
-        
-        val displayAlt = if (alt == "--") "--" else {
-            val a = alt.toFloatOrNull() ?: 0f
-            val value = if (isMetric) a else a * 3.28084f
-            val formatter = NumberFormat.getInstance(Locale("en", "IN")).apply {
-                minimumFractionDigits = 1
-                maximumFractionDigits = 1
-            }
-            val formatted = formatter.format(value)
-            if (isMetric) "$formatted m" else "$formatted ft"
-        }
-
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.Start) {
-            Text(text = "Temperature: $displayTemp", style = MaterialTheme.typography.titleMedium)
-            Text(text = "Altitude: $displayAlt", style = MaterialTheme.typography.titleMedium)
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+        // Source Selection Dropdowns
+        val tempOptions = listOf("DS18B20", "BMP280")
+        var tempExpanded by remember { mutableStateOf(false) }
+        ExposedDropdownMenuBox(
+            expanded = tempExpanded,
+            onExpandedChange = { tempExpanded = !tempExpanded }
         ) {
-            FilledIconButton(
-                onClick = onStartClick,
-                modifier = Modifier.size(64.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = ComposeColor(0xFF4CAF50).copy(alpha = 0.1f)
-                )
+            OutlinedTextField(
+                value = tempOptions[tempSource],
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Temperature Source") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tempExpanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = tempExpanded,
+                onDismissRequest = { tempExpanded = false }
             ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Start Sensor Connection",
-                    modifier = Modifier.size(40.dp),
-                    tint = ComposeColor(0xFF4CAF50)
-                )
-            }
-            
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            FilledIconButton(
-                onClick = onStopClick,
-                modifier = Modifier.size(64.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = ComposeColor.Red.copy(alpha = 0.1f)
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Stop,
-                    contentDescription = "Stop Connection",
-                    modifier = Modifier.size(40.dp),
-                    tint = ComposeColor.Red
-                )
-            }
-            
-            Spacer(modifier = Modifier.width(16.dp))
-
-            FilledIconButton(
-                onClick = onDmd2Click,
-                modifier = Modifier.size(64.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.DirectionsCar,
-                    contentDescription = "Open DMD2",
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-            
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            FilledIconButton(
-                onClick = { showInfoDialog = true },
-                modifier = Modifier.size(64.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = "Info",
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.secondary
-                )
+                tempOptions.forEachIndexed { index, option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            onTempSourceChange(index)
+                            tempExpanded = false
+                        }
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(250.dp)
-                .padding(8.dp)
+        val altOptions = listOf("Internal GPS", "BMP280")
+        var altExpanded by remember { mutableStateOf(false) }
+        ExposedDropdownMenuBox(
+            expanded = altExpanded,
+            onExpandedChange = { altExpanded = !altExpanded }
         ) {
+            OutlinedTextField(
+                value = altOptions[altSource],
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Altitude Source") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = altExpanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = altExpanded,
+                onDismissRequest = { altExpanded = false }
+            ) {
+                altOptions.forEachIndexed { index, option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            onAltSourceChange(index)
+                            altExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        val isDsFault = dsTemp.toFloatOrNull() == -127.0f
+        val isBmpFault = bmpTemp.contains("nan", ignoreCase = true) || bmpAlt.contains("nan", ignoreCase = true)
+
+        val currentTemp = if (tempSource == 0) dsTemp else bmpTemp
+        val displayTemp = if (currentTemp == "--") "--" 
+                          else if (tempSource == 0 && isDsFault) "" 
+                          else if (tempSource == 1 && isBmpFault) ""
+                          else {
+            val t = currentTemp.toFloatOrNull() ?: 0f
+            if (isCelsius) String.format("%.1f °C", t) else String.format("%.1f °F", t * 9/5 + 32)
+        }
+        
+        val currentAlt = if (altSource == 0) gpsAlt else bmpAlt
+        val displayAlt = if (currentAlt == "--") "--" 
+                          else if (altSource == 1 && isBmpFault) ""
+                          else {
+            val a = currentAlt.toFloatOrNull() ?: 0f
+            val value = if (isMetric) a else a * 3.28084f
+            val roundedValue = ceil(value).toInt()
+            val formatter = NumberFormat.getIntegerInstance(Locale.getDefault())
+            val formatted = formatter.format(roundedValue)
+            if (isMetric) "$formatted m" else "$formatted ft"
+        }
+
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.Start) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "Temperature: $displayTemp", style = MaterialTheme.typography.titleLarge)
+                if (lastUpdate.isNotEmpty()) {
+                    Text(
+                        text = " ($lastUpdate)",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                    
+                    val errorMsg = when {
+                        isDsFault && isBmpFault -> "Both DS18B20 and BMP280 sensors are not connected or sensor fault"
+                        isDsFault && tempSource == 0 -> "DS18B20 is not connected or sensor fault"
+                        isBmpFault && (tempSource == 1 || altSource == 1) -> "BMP280 is not connected or sensor fault"
+                        else -> null
+                    }
+                    
+                    if (errorMsg != null) {
+                        Text(
+                            text = " $errorMsg",
+                            color = ComposeColor.Red,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                }
+            }
+            Text(text = "Altitude: $displayAlt", style = MaterialTheme.typography.titleLarge)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FilledIconButton(onClick = onStartClick, modifier = Modifier.size(64.dp)) {
+                Icon(Icons.Default.PlayArrow, "Start", modifier = Modifier.size(40.dp))
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            FilledIconButton(onClick = onStopClick, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = ComposeColor.Red)) {
+                Icon(Icons.Default.Stop, "Stop", modifier = Modifier.size(40.dp))
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            FilledIconButton(onClick = onDmd2Click, modifier = Modifier.size(64.dp)) {
+                Icon(Icons.Default.DirectionsCar, "DMD2", modifier = Modifier.size(40.dp))
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            FilledIconButton(onClick = { showInfoDialog = true }, modifier = Modifier.size(64.dp)) {
+                Icon(Icons.Default.Info, "Info", modifier = Modifier.size(40.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Box(modifier = Modifier.fillMaxWidth().height(200.dp).padding(8.dp)) {
             bitmap?.let {
-                Image(
-                    bitmap = it.asImageBitmap(),
-                    contentDescription = "Sensor Chart",
-                    modifier = Modifier.fillMaxSize()
-                )
+                Image(bitmap = it.asImageBitmap(), contentDescription = "Sensor Chart", modifier = Modifier.fillMaxSize())
             } ?: Text("Waiting for data...", modifier = Modifier.align(Alignment.Center))
         }
 
@@ -447,41 +525,10 @@ fun MainScreen(
             horizontalArrangement = Arrangement.SpaceEvenly,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = if (isMetric) "Meters" else "Feet", style = MaterialTheme.typography.bodySmall)
-                Switch(
-                    checked = !isMetric, 
-                    onCheckedChange = { onUnitToggle() }, 
-                    modifier = Modifier.scale(0.7f).padding(start = 2.dp)
-                )
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = if (isCelsius) "°C" else "°F", style = MaterialTheme.typography.bodySmall)
-                Switch(
-                    checked = !isCelsius, 
-                    onCheckedChange = { onTempToggle() }, 
-                    modifier = Modifier.scale(0.7f).padding(start = 2.dp)
-                )
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Alt Only", style = MaterialTheme.typography.bodySmall)
-                Switch(
-                    checked = showAltOnly, 
-                    onCheckedChange = { onAltOnlyToggle() }, 
-                    modifier = Modifier.scale(0.7f).padding(start = 2.dp)
-                )
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Lock", style = MaterialTheme.typography.bodySmall)
-                Switch(
-                    checked = isLocked, 
-                    onCheckedChange = { onLockToggle() }, 
-                    modifier = Modifier.scale(0.7f).padding(start = 2.dp)
-                )
-            }
+            UnitToggle(label = if (isMetric) "Meters" else "Feet", checked = !isMetric, onCheckedChange = { onUnitToggle() })
+            UnitToggle(label = if (isCelsius) "°C" else "°F", checked = !isCelsius, onCheckedChange = { onTempToggle() })
+            UnitToggle(label = "Alt Only", checked = showAltOnly, onCheckedChange = { onAltOnlyToggle() })
+            UnitToggle(label = "Lock", checked = isLocked, onCheckedChange = { onLockToggle() })
         }
     }
 
@@ -491,91 +538,40 @@ fun MainScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .wrapContentHeight()
-                    .background(
-                        color = ComposeColor.Black.copy(alpha = 0.8f),
-                        shape = RoundedCornerShape(16.dp)
-                    )
+                    .background(ComposeColor.Black.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
                     .padding(16.dp)
             ) {
-                IconButton(
-                    onClick = { showInfoDialog = false },
-                    modifier = Modifier.align(Alignment.TopEnd)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = ComposeColor.White
-                    )
+                IconButton(onClick = { showInfoDialog = false }, modifier = Modifier.align(Alignment.TopEnd)) {
+                    Icon(Icons.Default.Close, "Close", tint = ComposeColor.White)
                 }
-
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp, bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Add an External Widget screen on DMD2 home screen and then select this widget to show the chart and data from this app.",
-                        color = ComposeColor.White,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(bottom = 24.dp)
+                        "Add an External Widget screen on DMD2 home screen and then select this widget to show the chart and data from this app.",
+                        color = ComposeColor.White, textAlign = TextAlign.Center
                     )
-                    Text(
-                        text = "Made With Pride for Riders By",
-                        color = ComposeColor.White,
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Pratik Kumar",
-                        color = ComposeColor(0xFF87CEEB), // Sky Blue
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 28.sp
-                        ),
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Image(
-                            painter = painterResource(id = android.R.drawable.ic_menu_slideshow), // Temporary placeholder
-                            contentDescription = "YouTube",
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clickable {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@sleepyvoyager"))
-                                    context.startActivity(intent)
-                                }
-                        )
-                        Spacer(modifier = Modifier.width(32.dp))
-                        Image(
-                            painter = painterResource(id = android.R.drawable.ic_menu_camera), // Temporary placeholder
-                            contentDescription = "Instagram",
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clickable {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/sleepyvoyager"))
-                                    context.startActivity(intent)
-                                }
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Made With Pride by Pratik Kumar", color = ComposeColor.White, fontWeight = FontWeight.Bold)
                 }
             }
         }
     }
 }
 
+@Composable
+fun UnitToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = label, style = MaterialTheme.typography.bodySmall)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.scale(0.7f))
+    }
+}
+
 private fun Modifier.scale(scale: Float): Modifier = this.then(
     Modifier.layout { measurable, constraints ->
         val placeable = measurable.measure(constraints)
-        layout(
-            (placeable.width * scale).toInt(),
-            (placeable.height * scale).toInt()
-        ) {
+        layout((placeable.width * scale).toInt(), (placeable.height * scale).toInt()) {
             placeable.placeRelative(0, 0)
         }
     }
