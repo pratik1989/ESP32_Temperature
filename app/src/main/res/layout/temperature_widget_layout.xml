@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:padding="0dp"
     android:background="@android:color/transparent"
     android:clickable="true"
     android:focusable="true">
@@ -15,22 +15,25 @@
         android:layout_height="wrap_content"
         android:text="Disconnected"
         android:textColor="#FFFF0000"
-        android:textSize="14sp"
+        android:textSize="12sp"
         android:textStyle="bold"
         android:gravity="center_horizontal"
-        android:layout_marginBottom="4dp"/>
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="2dp"/>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:gravity="center_vertical"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp">
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Temp: "
             android:textColor="@android:color/white"
-            android:textSize="22sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
         <TextView
             android:id="@+id/widget_temp_value"
@@ -38,7 +41,7 @@
             android:layout_height="wrap_content"
             android:text="-- °C"
             android:textColor="@android:color/white"
-            android:textSize="22sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
         <TextView
             android:id="@+id/widget_temp_time"
@@ -46,23 +49,25 @@
             android:layout_height="wrap_content"
             android:text=""
             android:textColor="@android:color/white"
-            android:textSize="14sp"
+            android:textSize="12sp"
             android:textStyle="normal"
             android:visibility="gone"
-            android:layout_marginStart="6dp" />
+            android:layout_marginStart="4dp" />
     </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="4dp">
+        android:layout_marginTop="2dp"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp">
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Alt: "
             android:textColor="@android:color/white"
-            android:textSize="22sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
         <TextView
             android:id="@+id/widget_alt_value"
@@ -70,7 +75,7 @@
             android:layout_height="wrap_content"
             android:text="-- ft"
             android:textColor="@android:color/white"
-            android:textSize="22sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -79,6 +84,6 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="4dp"
         android:scaleType="fitXY" />
 </LinearLayout>

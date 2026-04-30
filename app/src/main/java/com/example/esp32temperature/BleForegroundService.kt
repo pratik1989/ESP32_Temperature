@@ -184,18 +184,6 @@ class BleForegroundService : Service() {
         }
     }
 
-    private val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            if (location.hasAltitude()) {
-                gpsAlt = String.format("%.1f", location.altitude)
-                recordData()
-            }
-        }
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
-    }
-
     private fun startScanning() {
         if (isScanning || bluetoothGatt != null) return
         
@@ -288,7 +276,7 @@ class BleForegroundService : Service() {
                     gatt.requestMtu(128) 
                 }, 1000)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                Log.d(TAG, "GATT Disconnected from ${gatt.device.address}")
+                Log.d(TAG, "GATT DisCONNECTED from ${gatt.device.address}")
                 if (gatt == bluetoothGatt) {
                     bluetoothGatt?.close()
                     bluetoothGatt = null
@@ -384,6 +372,18 @@ class BleForegroundService : Service() {
         }
     }
 
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            if (location.hasAltitude()) {
+                gpsAlt = String.format("%.1f", location.altitude)
+                recordData()
+            }
+        }
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+    }
+
     private fun recordData() {
         val now = System.currentTimeMillis()
         val dsT = dsTemp.toFloatOrNull()
@@ -441,8 +441,8 @@ class BleForegroundService : Service() {
 
     private fun drawChart(): Bitmap? {
         if (dataHistory.size < 2) return null
-        val width = 2000
-        val height = 200
+        val width = 600
+        val height = 250
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         
@@ -473,24 +473,24 @@ class BleForegroundService : Service() {
 
         if (tempPoints.isEmpty() && altPoints.isEmpty()) return bitmap
 
-        val padding = 15f
-        val textPadding = 80f // Increased space for legends with units
-        val chartW = width - 2 * textPadding
+        val padding = 5f
+        val textPadding = 0f // No padding for chart to use full width
+        val chartW = width.toFloat()
         val middleY = height / 2f
         
         // Sections
         val topChartTop = padding
-        val topChartBottom = middleY - 10f
+        val topChartBottom = middleY - 5f
         val topChartHeight = topChartBottom - topChartTop
 
-        val bottomChartTop = middleY + 10f
+        val bottomChartTop = middleY + 5f
         val bottomChartBottom = height - padding
         val bottomChartHeight = bottomChartBottom - bottomChartTop
 
-        fun getX(ts: Long) = textPadding + ((ts - chartStartTime).toFloat() / totalRange) * chartW
+        fun getX(ts: Long) = ((ts - chartStartTime).toFloat() / totalRange) * width
         
         val paint = Paint().apply {
-            strokeWidth = 3f
+            strokeWidth = 8f
             style = Paint.Style.STROKE
             isAntiAlias = true
             strokeJoin = Paint.Join.ROUND
@@ -499,15 +499,17 @@ class BleForegroundService : Service() {
 
         // Draw middle separator
         paint.color = Color.GRAY
-        paint.alpha = 128
+        paint.alpha = 100
         paint.strokeWidth = 1f
-        canvas.drawLine(textPadding, middleY, width - textPadding, middleY, paint)
+        canvas.drawLine(0f, middleY, width.toFloat(), middleY, paint)
 
         val textPaint = Paint().apply {
             color = Color.WHITE
             textSize = 12f
             isAntiAlias = true
             typeface = Typeface.DEFAULT_BOLD
+            // Add a small shadow for better readability over the chart lines
+            setShadowLayer(3f, 0f, 0f, Color.BLACK)
         }
 
         if (tempPoints.size >= 2) {
@@ -521,25 +523,31 @@ class BleForegroundService : Service() {
             val rangeT = (drawMaxT - drawMinT)
 
             paint.color = Color.MAGENTA
-            paint.strokeWidth = 3f
+            paint.strokeWidth = 8f
             val path = Path()
             fun getY(t: Float) = topChartBottom - ((t - drawMinT) / rangeT) * topChartHeight
             
             path.moveTo(getX(tempPoints[0].first), getY(tempPoints[0].second!!))
             for (i in 1 until tempPoints.size) {
-                path.lineTo(getX(tempPoints[i].first), getY(tempPoints[i].second!!))
+                val x1 = getX(tempPoints[i - 1].first)
+                val y1 = getY(tempPoints[i - 1].second!!)
+                val x2 = getX(tempPoints[i].first)
+                val y2 = getY(tempPoints[i].second!!)
+                
+                // Smooth curve using cubicTo
+                path.cubicTo((x1 + x2) / 2, y1, (x1 + x2) / 2, y2, x2, y2)
             }
             canvas.drawPath(path, paint)
 
-            // Temp Legends - Rounded Up Integers with units
+            // Temp Legends - Overlayed on the left
             val formatTemp = { t: Float -> 
                 val displayT = if (isCelsius) t else (t * 9/5 + 32)
                 val unit = if (isCelsius) "C" else "F"
                 "${ceil(displayT.toDouble()).toInt()}$unit"
             }
-            textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(formatTemp(maxT), textPadding - 5f, topChartTop + 10f, textPaint)
-            canvas.drawText(formatTemp(minT), textPadding - 5f, topChartBottom, textPaint)
+            textPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText(formatTemp(maxT), 5f, topChartTop + 12f, textPaint)
+            canvas.drawText(formatTemp(minT), 5f, topChartBottom - 2f, textPaint)
         }
 
         if (altPoints.size >= 2) {
@@ -553,25 +561,31 @@ class BleForegroundService : Service() {
             val rangeA = (drawMaxA - drawMinA)
 
             paint.color = Color.rgb(135, 206, 235)
-            paint.strokeWidth = 3f
+            paint.strokeWidth = 8f
             val path = Path()
             fun getY(a: Float) = bottomChartBottom - ((a - drawMinA) / rangeA) * bottomChartHeight
             
             path.moveTo(getX(altPoints[0].first), getY(altPoints[0].second!!))
             for (i in 1 until altPoints.size) {
-                path.lineTo(getX(altPoints[i].first), getY(altPoints[i].second!!))
+                val x1 = getX(altPoints[i - 1].first)
+                val y1 = getY(altPoints[i - 1].second!!)
+                val x2 = getX(altPoints[i].first)
+                val y2 = getY(altPoints[i].second!!)
+                
+                // Smooth curve using cubicTo
+                path.cubicTo((x1 + x2) / 2, y1, (x1 + x2) / 2, y2, x2, y2)
             }
             canvas.drawPath(path, paint)
 
-            // Alt Legends - Rounded Up Integers with units
+            // Alt Legends - Overlayed on the right
             val formatAlt = { a: Float -> 
                 val displayA = if (isMetric) a else (a * 3.28084f)
                 val unit = if (isMetric) "m" else "ft"
                 "${ceil(displayA.toDouble()).toInt()}$unit"
             }
-            textPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText(formatAlt(maxA), width - textPadding + 5f, bottomChartTop + 10f, textPaint)
-            canvas.drawText(formatAlt(minA), width - textPadding + 5f, bottomChartBottom, textPaint)
+            textPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(formatAlt(maxA), width - 5f, bottomChartTop + 12f, textPaint)
+            canvas.drawText(formatAlt(minA), width - 5f, bottomChartBottom - 2f, textPaint)
         }
 
         return bitmap

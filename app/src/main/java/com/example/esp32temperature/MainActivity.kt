@@ -502,7 +502,7 @@ fun MainScreen(
             }
             Spacer(modifier = Modifier.width(16.dp))
             FilledIconButton(onClick = onDmd2Click, modifier = Modifier.size(64.dp)) {
-                Icon(Icons.Default.DirectionsCar, "DMD2", modifier = Modifier.size(40.dp))
+                Icon(Icons.Default.Speed, "DMD2", modifier = Modifier.size(40.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
             FilledIconButton(onClick = { showInfoDialog = true }, modifier = Modifier.size(64.dp)) {
@@ -512,7 +512,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Box(modifier = Modifier.fillMaxWidth().height(200.dp).padding(8.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().height(250.dp).padding(8.dp)) {
             bitmap?.let {
                 Image(bitmap = it.asImageBitmap(), contentDescription = "Sensor Chart", modifier = Modifier.fillMaxSize())
             } ?: Text("Waiting for data...", modifier = Modifier.align(Alignment.Center))
