@@ -8,6 +8,7 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.*
 import android.location.Location
 import android.location.LocationListener
@@ -42,6 +43,13 @@ class BleForegroundService : Service() {
     private var bmpTemp = "--"
     private var bmpAlt = "--"
     private var gpsAlt = "--"
+    
+    // RAW Values (uncalibrated, internal units: Temp in C, Altitude in METERS)
+    private var rawDsTemp: Float? = null
+    private var rawBmpTemp: Float? = null
+    private var rawBmpAlt: Float? = null
+    private var rawGpsAlt: Float? = null
+
     private var currentStatus = "Disconnected"
     private var connectedDeviceId = ""
     private var lastUpdateTime = ""
@@ -81,7 +89,12 @@ class BleForegroundService : Service() {
         const val KEY_ALT_SOURCE = "alt_source"   // 0: GPS, 1: BMP280
 
         const val KEY_TEMP_OFFSET = "temp_offset"
-        const val KEY_ALT_OFFSET = "alt_offset"
+        const val KEY_ALT_OFFSET = "alt_offset" // Stored in METERS
+    }
+
+    private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        updateCalibratedStrings()
+        updateWidgetAndBroadcast()
     }
 
     private val watchdogRunnable = object : Runnable {
@@ -103,6 +116,9 @@ class BleForegroundService : Service() {
         bluetoothAdapter = bluetoothManager.adapter
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         handler.post(watchdogRunnable)
+        
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(prefListener)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -199,10 +215,8 @@ class BleForegroundService : Service() {
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             if (location.hasAltitude()) {
-                val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                val aOffset = prefs.getFloat(KEY_ALT_OFFSET, 0f)
-                val calibratedAlt = location.altitude + (aOffset / 3.28084f)
-                gpsAlt = String.format("%.1f", calibratedAlt)
+                rawGpsAlt = location.altitude.toFloat()
+                updateCalibratedStrings()
                 recordData()
             }
         }
@@ -309,9 +323,14 @@ class BleForegroundService : Service() {
                     bluetoothGatt = null
                 }
                 broadcastStatus("Disconnected", "")
+                
                 dsTemp = "--"
                 bmpTemp = "--"
                 bmpAlt = "--"
+                rawDsTemp = null
+                rawBmpTemp = null
+                rawBmpAlt = null
+                
                 lastUpdateTime = ""
                 updateWidgetAndBroadcast()
                 if (shouldAutoReconnect) {
@@ -378,44 +397,40 @@ class BleForegroundService : Service() {
                 val data = characteristic.value?.let { String(it) } ?: ""
                 Log.v(TAG, "Data received: $data")
                 
-                val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                val tOffset = prefs.getFloat(KEY_TEMP_OFFSET, 0f)
-                val aOffset = prefs.getFloat(KEY_ALT_OFFSET, 0f)
-                
                 if (data.contains(",")) {
                     val parts = data.split(",")
                     if (parts.size >= 3) {
-                        val rawDs = parts[0].toFloatOrNull()
-                        dsTemp = if (rawDs != null && rawDs != -127f) (rawDs + tOffset).toString() else parts[0]
-                        
-                        val rawBmpT = parts[1].toFloatOrNull()
-                        bmpTemp = if (rawBmpT != null) (rawBmpT + tOffset).toString() else parts[1]
-                        
+                        rawDsTemp = parts[0].toFloatOrNull()
+                        rawBmpTemp = parts[1].toFloatOrNull()
+                        // ESP32 sends altitude in feet
                         val altInFeet = parts[2].toFloatOrNull()
-                        bmpAlt = if (altInFeet != null) {
-                            String.format("%.1f", (altInFeet + aOffset) / 3.28084f)
-                        } else {
-                            parts[2] // Keep "nan" or other string
-                        }
+                        rawBmpAlt = altInFeet?.let { it / 3.28084f }
                     }
                 } else {
-                    val rawDs = data.toFloatOrNull()
-                    dsTemp = if (rawDs != null && rawDs != -127f) (rawDs + tOffset).toString() else data
+                    rawDsTemp = data.toFloatOrNull()
                 }
+                
                 lastUpdateTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                updateCalibratedStrings()
                 recordData()
             }
         }
     }
 
+    private fun updateCalibratedStrings() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val tOffset = prefs.getFloat(KEY_TEMP_OFFSET, 0f)
+        val aOffset = prefs.getFloat(KEY_ALT_OFFSET, 0f)
+
+        dsTemp = rawDsTemp?.let { if (it == -127f) "-127.0" else (it + tOffset).toString() } ?: "--"
+        bmpTemp = rawBmpTemp?.let { (it + tOffset).toString() } ?: "--"
+        bmpAlt = rawBmpAlt?.let { String.format(Locale.US, "%.1f", it + aOffset) } ?: "--"
+        gpsAlt = rawGpsAlt?.let { String.format(Locale.US, "%.1f", it + aOffset) } ?: "--"
+    }
+
     private fun recordData() {
         val now = System.currentTimeMillis()
-        val dsT = dsTemp.toFloatOrNull()
-        val bmpT = bmpTemp.toFloatOrNull()
-        val bmpA = bmpAlt.toFloatOrNull()
-        val gpsA = gpsAlt.toFloatOrNull()
-        
-        dataHistory.add(ChartPoint(now, dsT, bmpT, bmpA, gpsA))
+        dataHistory.add(ChartPoint(now, rawDsTemp, rawBmpTemp, rawBmpAlt, rawGpsAlt))
         dataHistory.removeAll { now - it.timestamp > HISTORY_LIMIT_MS }
         
         updateWidgetAndBroadcast()
@@ -482,18 +497,20 @@ class BleForegroundService : Service() {
         val isMetric = prefs.getBoolean(KEY_IS_METRIC, true)
         val isCelsius = prefs.getBoolean(KEY_IS_CELSIUS, true)
         val showAltOnly = prefs.getBoolean(KEY_SHOW_ALT_ONLY, false)
+        
+        val tOffset = prefs.getFloat(KEY_TEMP_OFFSET, 0f)
+        val aOffset = prefs.getFloat(KEY_ALT_OFFSET, 0f)
 
-        // Filter valid points
+        // Filter valid points and apply CURRENT calibration
         val tempPoints = dataHistory.filter { it.timestamp >= chartStartTime }.map { 
-            val tValue = if (tempSource == 0) it.dsTemp else it.bmpTemp
-            val isFault = if (tempSource == 0) (tValue == -127.0f) else (tValue == null)
-            it.timestamp to if (isFault) null else tValue
+            val tRaw = if (tempSource == 0) it.dsTemp else it.bmpTemp
+            val isFault = if (tempSource == 0) (tRaw == -127.0f) else (tRaw == null)
+            it.timestamp to if (isFault) null else (tRaw!! + tOffset)
         }.filter { it.second != null }
         
         val altPoints = dataHistory.filter { it.timestamp >= chartStartTime }.map { 
-            val aValue = if (altSource == 0) it.gpsAlt else it.bmpAlt 
-            val isFault = (aValue == null)
-            it.timestamp to if (isFault) null else aValue
+            val aRaw = if (altSource == 0) it.gpsAlt else it.bmpAlt 
+            it.timestamp to aRaw?.let { it + aOffset }
         }.filter { it.second != null }
 
         val padding = 5f
@@ -652,6 +669,9 @@ class BleForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .unregisterOnSharedPreferenceChangeListener(prefListener)
+
         shouldAutoReconnect = false
         handler.removeCallbacksAndMessages(null)
         locationManager?.removeUpdates(locationListener)

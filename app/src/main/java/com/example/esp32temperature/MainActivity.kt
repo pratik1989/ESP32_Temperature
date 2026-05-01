@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
     private var altSource by mutableIntStateOf(0)  // 0: GPS, 1: BMP280
 
     private var tempOffset by mutableFloatStateOf(0f)
-    private var altOffset by mutableFloatStateOf(0f)
+    private var altOffset by mutableFloatStateOf(0f) // Stored in METERS
 
     private val dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -187,11 +187,11 @@ class MainActivity : ComponentActivity() {
         broadcastUpdate()
     }
 
-    private fun updateAltOffset(offset: Float) {
-        altOffset = offset
+    private fun updateAltOffset(offsetMeters: Float) {
+        altOffset = offsetMeters
         getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putFloat(BleForegroundService.KEY_ALT_OFFSET, offset)
+            .putFloat(BleForegroundService.KEY_ALT_OFFSET, offsetMeters)
             .apply()
         broadcastUpdate()
     }
@@ -477,19 +477,30 @@ fun MainScreen(
                     tempOffText = it
                     it.toFloatOrNull()?.let { f -> onTempOffsetChange(f) }
                 },
-                label = { Text("Temp Offset") },
+                label = { Text("Temp Offset (°C)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.weight(1f)
             )
 
-            var altOffText by remember(altOffset) { mutableStateOf(altOffset.toString()) }
+            // Dynamic Altitude Offset Title and Unit Conversion
+            val altLabel = if (isMetric) "Alt Offset (meters)" else "Alt Offset (ft)"
+            val displayedAltOffset = if (isMetric) altOffset else altOffset * 3.28084f
+            
+            // Local state for text field to allow free typing
+            var altOffText by remember(isMetric) { 
+                mutableStateOf(String.format(Locale.US, "%.1f", displayedAltOffset)) 
+            }
+            
             OutlinedTextField(
                 value = altOffText,
                 onValueChange = {
                     altOffText = it
-                    it.toFloatOrNull()?.let { f -> onAltOffsetChange(f) }
+                    it.toFloatOrNull()?.let { f -> 
+                        val metersValue = if (isMetric) f else f / 3.28084f
+                        onAltOffsetChange(metersValue) 
+                    }
                 },
-                label = { Text("Alt Offset (ft)") },
+                label = { Text(altLabel) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.weight(1f)
             )
