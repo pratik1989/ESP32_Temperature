@@ -147,10 +147,10 @@ class MainActivity : ComponentActivity() {
                         onTempToggle = { toggleTempUnits() },
                         onAltOnlyToggle = { toggleAltOnly() },
                         onLockToggle = { toggleLock() },
-                        onTempSourceChange = { updateTempSource(it) },
-                        onAltSourceChange = { updateAltSource(it) },
-                        onTempOffsetChange = { updateTempOffset(it) },
-                        onAltOffsetChange = { updateAltOffset(it) },
+                        onTempSourceChange = { updateTempSource(index = it) },
+                        onAltSourceChange = { updateAltSource(index = it) },
+                        onTempOffsetChange = { updateTempOffset(offset = it) },
+                        onAltOffsetChange = { updateAltOffset(offsetMeters = it) },
                         onStartClick = { startBleService() },
                         onStopClick = { stopBleService() },
                         onDmd2Click = { openDmd2() }
@@ -160,19 +160,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun updateTempSource(source: Int) {
-        tempSource = source
+    private fun updateTempSource(index: Int) {
+        tempSource = index
         getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putInt(BleForegroundService.KEY_TEMP_SOURCE, source)
+            .putInt(BleForegroundService.KEY_TEMP_SOURCE, index)
             .apply()
     }
 
-    private fun updateAltSource(source: Int) {
-        altSource = source
+    private fun updateAltSource(index: Int) {
+        altSource = index
         getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putInt(BleForegroundService.KEY_ALT_SOURCE, source)
+            .putInt(BleForegroundService.KEY_ALT_SOURCE, index)
             .apply()
     }
 
@@ -349,6 +349,7 @@ fun MainScreen(
 ) {
     var showInfoDialog by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -451,7 +452,7 @@ fun MainScreen(
             val tempLabel = if (isCelsius) "Temp Offset (°C)" else "Temp Offset (°F)"
             val displayedTempOffset = if (isCelsius) tempOffset else tempOffset * 9/5
             
-            var tempOffText by remember(isCelsius) { 
+            var tempOffText by remember(isCelsius, tempOffset) { 
                 mutableStateOf(String.format(Locale.US, "%.1f", displayedTempOffset)) 
             }
             
@@ -473,7 +474,7 @@ fun MainScreen(
             val altLabel = if (isMetric) "Alt Offset (meters)" else "Alt Offset (ft)"
             val displayedAltOffset = if (isMetric) altOffset else altOffset * 3.28084f
             
-            var altOffText by remember(isMetric) {
+            var altOffText by remember(isMetric, altOffset) { 
                 mutableStateOf(String.format(Locale.US, "%.1f", displayedAltOffset)) 
             }
             
@@ -592,6 +593,39 @@ fun MainScreen(
             UnitToggle(label = "Alt Only", checked = showAltOnly, onCheckedChange = { onAltOnlyToggle() })
             UnitToggle(label = "Lock", checked = isLocked, onCheckedChange = { onLockToggle() })
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Social Icons at the bottom
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@sleepyvoyager"))
+                context.startActivity(intent)
+            }) {
+                Icon(
+                    imageVector = Icons.Default.PlayCircle,
+                    contentDescription = "YouTube",
+                    tint = ComposeColor.Red,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(24.dp))
+            IconButton(onClick = {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/sleepyvoyager/"))
+                context.startActivity(intent)
+            }) {
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = "Instagram",
+                    tint = ComposeColor(0xFFE4405F),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
     }
 
     if (showInfoDialog) {
@@ -615,7 +649,39 @@ fun MainScreen(
                         color = ComposeColor.White, textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Made With Pride by Pratik Kumar", color = ComposeColor.White, fontWeight = FontWeight.Bold)
+                    Row {
+                        Text(text = "Made With Pride by ", color = ComposeColor.White, fontWeight = FontWeight.Bold)
+                        Text(text = "Pratik Kumar", color = ComposeColor(0xFF87CEEB), fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@sleepyvoyager"))
+                            context.startActivity(intent)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.PlayCircle,
+                                contentDescription = "YouTube",
+                                tint = ComposeColor.Red,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        IconButton(onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/sleepyvoyager/"))
+                            context.startActivity(intent)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Instagram",
+                                tint = ComposeColor(0xFFE4405F),
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
