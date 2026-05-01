@@ -470,14 +470,24 @@ fun MainScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            var tempOffText by remember(tempOffset) { mutableStateOf(tempOffset.toString()) }
+            // Dynamic Temperature Offset Title and Unit Conversion
+            val tempLabel = if (isCelsius) "Temp Offset (°C)" else "Temp Offset (°F)"
+            val displayedTempOffset = if (isCelsius) tempOffset else tempOffset * 9/5
+            
+            var tempOffText by remember(isCelsius) { 
+                mutableStateOf(String.format(Locale.US, "%.1f", displayedTempOffset)) 
+            }
+            
             OutlinedTextField(
                 value = tempOffText,
                 onValueChange = {
                     tempOffText = it
-                    it.toFloatOrNull()?.let { f -> onTempOffsetChange(f) }
+                    it.toFloatOrNull()?.let { f -> 
+                        val celsiusOffsetValue = if (isCelsius) f else f * 5/9
+                        onTempOffsetChange(celsiusOffsetValue) 
+                    }
                 },
-                label = { Text("Temp Offset (°C)") },
+                label = { Text(tempLabel) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.weight(1f)
             )
