@@ -166,7 +166,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putInt(BleForegroundService.KEY_TEMP_SOURCE, source)
             .apply()
-        broadcastUpdate()
     }
 
     private fun updateAltSource(source: Int) {
@@ -175,7 +174,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putInt(BleForegroundService.KEY_ALT_SOURCE, source)
             .apply()
-        broadcastUpdate()
     }
 
     private fun updateTempOffset(offset: Float) {
@@ -184,7 +182,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putFloat(BleForegroundService.KEY_TEMP_OFFSET, offset)
             .apply()
-        broadcastUpdate()
     }
 
     private fun updateAltOffset(offsetMeters: Float) {
@@ -193,7 +190,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putFloat(BleForegroundService.KEY_ALT_OFFSET, offsetMeters)
             .apply()
-        broadcastUpdate()
     }
 
     private fun toggleUnits() {
@@ -202,7 +198,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putBoolean(BleForegroundService.KEY_IS_METRIC, isMetric)
             .apply()
-        broadcastUpdate()
     }
 
     private fun toggleTempUnits() {
@@ -211,7 +206,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putBoolean(BleForegroundService.KEY_IS_CELSIUS, isCelsius)
             .apply()
-        broadcastUpdate()
     }
 
     private fun toggleAltOnly() {
@@ -220,7 +214,6 @@ class MainActivity : ComponentActivity() {
             .edit()
             .putBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, showAltOnly)
             .apply()
-        broadcastUpdate()
     }
 
     private fun toggleLock() {
@@ -242,20 +235,6 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Sensor Unlocked", Toast.LENGTH_SHORT).show()
         }
         editor.apply()
-        broadcastUpdate()
-    }
-
-    private fun broadcastUpdate() {
-        val intent = Intent(BleForegroundService.ACTION_UPDATE_DATA)
-        intent.putExtra(BleForegroundService.EXTRA_DS_TEMP, dsTemp)
-        intent.putExtra(BleForegroundService.EXTRA_BMP_TEMP, bmpTemp)
-        intent.putExtra(BleForegroundService.EXTRA_BMP_ALT, bmpAlt)
-        intent.putExtra(BleForegroundService.EXTRA_GPS_ALT, gpsAlt)
-        intent.putExtra(BleForegroundService.EXTRA_STATUS, connectionStatus)
-        intent.putExtra(BleForegroundService.EXTRA_DEVICE_ID, deviceId)
-        intent.putExtra(BleForegroundService.EXTRA_LAST_UPDATE_TIME, lastUpdateTime)
-        intent.setPackage(packageName)
-        sendBroadcast(intent)
     }
 
     private fun openDmd2() {
@@ -334,8 +313,6 @@ class MainActivity : ComponentActivity() {
         gpsAlt = "--"
         lastUpdateTime = ""
         chartBitmap = null
-        
-        broadcastUpdate()
     }
 }
 
@@ -496,8 +473,7 @@ fun MainScreen(
             val altLabel = if (isMetric) "Alt Offset (meters)" else "Alt Offset (ft)"
             val displayedAltOffset = if (isMetric) altOffset else altOffset * 3.28084f
             
-            // Local state for text field to allow free typing
-            var altOffText by remember(isMetric) { 
+            var altOffText by remember(isMetric) {
                 mutableStateOf(String.format(Locale.US, "%.1f", displayedAltOffset)) 
             }
             
@@ -580,7 +556,7 @@ fun MainScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             FilledIconButton(onClick = onStartClick, modifier = Modifier.size(64.dp)) {
-                Icon(Icons.Default.PlayArrow, "Start", modifier = Modifier.size(40.dp))
+                Icon(Icons.Default.Refresh, "Refresh", modifier = Modifier.size(40.dp))
             }
             Spacer(modifier = Modifier.width(16.dp))
             FilledIconButton(onClick = onStopClick, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = ComposeColor.Red)) {
