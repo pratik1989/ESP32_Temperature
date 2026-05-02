@@ -353,12 +353,10 @@ fun MainScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(scrollState)
             .drawWithContent {
                 drawContent()
                 if (scrollState.maxValue > 0 && scrollbarAlpha > 0f) {
-                    val scrollbarWidth = 3.dp.toPx() // Smaller scrollbar
+                    val scrollbarWidth = 4.dp.toPx()
                     val visibleHeight = size.height
                     val totalHeight = visibleHeight + scrollState.maxValue
                     val scrollbarHeight = visibleHeight * (visibleHeight / totalHeight)
@@ -366,12 +364,14 @@ fun MainScreen(
                     
                     drawRoundRect(
                         color = ComposeColor.White.copy(alpha = scrollbarAlpha),
-                        topLeft = Offset(size.width - scrollbarWidth, scrollbarYOffset),
+                        topLeft = Offset(size.width - scrollbarWidth - 2.dp.toPx(), scrollbarYOffset),
                         size = Size(scrollbarWidth, scrollbarHeight),
                         cornerRadius = CornerRadius(scrollbarWidth / 2, scrollbarWidth / 2)
                     )
                 }
-            },
+            }
+            .padding(16.dp)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
