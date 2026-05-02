@@ -7,6 +7,26 @@ This app connects via Bluetooth Low Energy (BLE) to a custom ESP32-based sensor 
 
 <hr>
 
+<div align="center">
+  <p><b>DMD2 Widget View</b></p>
+</div>
+
+<img width="2000" height="1200" alt="Screenshot_20260502-091147" src="https://github.com/user-attachments/assets/d5538243-47fa-4024-9af7-eb0b50ca695c" />
+
+
+<div align="center">
+  <p><b>Main App View</b></p>
+</div>
+
+<img width="2000" height="1200" alt="Screenshot_20260502-091059" src="https://github.com/user-attachments/assets/9c8a4868-7ec5-4f50-8491-be10c2e22833" />
+
+
+<div align="center">
+  <p><b>In-App Simulation View</b></p>
+</div>
+
+<img width="2000" height="1200" alt="Screenshot_20260502-091133" src="https://github.com/user-attachments/assets/d4608645-a2ed-4fa2-b53b-0560bb3b8467" />
+
 ## 🚀 Key Features
 
 * **Dual-Sensor Temperature:** Monitor data from both `DS18B20` (external probe) and `BMP280` (internal) sensors.
