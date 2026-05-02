@@ -15,6 +15,7 @@ This app connects via Bluetooth Low Energy (BLE) to a custom ESP32-based sensor 
 * **DMD2 Integration:** Includes a dedicated Android Widget designed specifically to look great on the DMD2 home screen.
 * **Foreground Service:** Runs as a persistent service, ensuring data collection continues even when the app is in the background.
 * **Calibration Tools:** Advanced offset settings to calibrate your sensors for maximum accuracy.
+* **Simulation Mode:** Simulates the Temperature and Altitude readings to test it in DMD, before builiding the Sensor hub.
 
 ## 📱 App Navigation & Interface
 
@@ -44,6 +45,7 @@ The central box displays a dynamic line chart.
 * **Meters/Feet:** Switch between Metric and Imperial units for altitude and offsets.
 * **°C/°F:** Toggle between Celsius and Fahrenheit for temperature readings.
 * **Alt Only:** When turned ON, it hides the temperature chart to provide a larger, more detailed view of your altitude changes.
+* **Sumulation:** To Simulate the readings and charts.
 * **Lock:** "Locks" the app to the currently connected device address. This prevents the app from accidentally connecting to other nearby sensors in a group riding scenario.
 
 ## 🛠 Hardware Compatibility
