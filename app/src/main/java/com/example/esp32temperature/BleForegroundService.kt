@@ -1,15 +1,21 @@
 package com.example.esp32temperature
 
 import android.annotation.SuppressLint
-import android.app.*
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
-import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.graphics.*
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Typeface
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -20,24 +26,21 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.graphics.createBitmap
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.ceil
+import kotlin.math.max
 
 @SuppressLint("MissingPermission")
 class BleForegroundService : Service() {
 
-    private val TAG = "BleForegroundService"
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
     private var locationManager: LocationManager? = null
     private val handler = Handler(Looper.getMainLooper())
     private var shouldAutoReconnect = true
-
-    private val SERVICE_UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
-    private val CHARACTERISTIC_UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
-    private val CLIENT_CHARACTERISTIC_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     private var dsTemp = "--"
     private var bmpTemp = "--"
@@ -58,9 +61,14 @@ class BleForegroundService : Service() {
     
     data class ChartPoint(val timestamp: Long, val dsTemp: Float?, val bmpTemp: Float?, val bmpAlt: Float?, val gpsAlt: Float?)
     private val dataHistory = Collections.synchronizedList(mutableListOf<ChartPoint>())
-    private val HISTORY_LIMIT_MS = 3600000L // 1 hour
 
     companion object {
+        private const val TAG = "BleForegroundService"
+        private val SERVICE_UUID: UUID = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
+        private val CHARACTERISTIC_UUID: UUID = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
+        private val CLIENT_CHARACTERISTIC_CONFIG: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private const val HISTORY_LIMIT_MS = 3600000L // 1 hour
+
         const val CHANNEL_ID = "BleForegroundServiceChannel"
         const val NOTIFICATION_ID = 1
 
@@ -112,12 +120,12 @@ class BleForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         handler.post(watchdogRunnable)
         
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(prefListener)
     }
 
@@ -158,7 +166,7 @@ class BleForegroundService : Service() {
         val adapter = bluetoothAdapter ?: return false
         if (!adapter.isEnabled) return false
 
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val isLocked = prefs.getBoolean(KEY_IS_LOCKED, false)
         val lockedId = prefs.getString(KEY_LOCKED_DEVICE_ID, "")
 
@@ -174,8 +182,7 @@ class BleForegroundService : Service() {
         }
         
         // Also check currently connected devices
-        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        val connectedDevices = bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
+        val connectedDevices = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).getConnectedDevices(BluetoothProfile.GATT)
         for (device in connectedDevices) {
             val deviceName = device.name ?: ""
             if (isTargetDevice(deviceName, device.address, isLocked, lockedId)) {
@@ -207,7 +214,7 @@ class BleForegroundService : Service() {
             if (locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true) {
                 locationManager?.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 0f, locationListener)
             }
-        } catch (e: SecurityException) {
+        } catch (_: SecurityException) {
             Log.e(TAG, "Location permission missing")
         }
     }
@@ -220,6 +227,7 @@ class BleForegroundService : Service() {
                 recordData()
             }
         }
+        @Deprecated("Deprecated in Java")
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         override fun onProviderEnabled(provider: String) {}
         override fun onProviderDisabled(provider: String) {}
@@ -265,7 +273,7 @@ class BleForegroundService : Service() {
             
             Log.v(TAG, "Discovered: $deviceName [${device.address}] RSSI: ${result.rssi}")
 
-            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             val isLocked = prefs.getBoolean(KEY_IS_LOCKED, false)
             val lockedId = prefs.getString(KEY_LOCKED_DEVICE_ID, "")
 
@@ -288,7 +296,7 @@ class BleForegroundService : Service() {
             Log.d(TAG, "Stopping BLE Scan")
             try {
                 bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
             isScanning = false
         }
     }
@@ -370,8 +378,14 @@ class BleForegroundService : Service() {
                         gatt.setCharacteristicNotification(characteristic, true)
                         val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG)
                         if (descriptor != null) {
-                            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            gatt.writeDescriptor(descriptor)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                                @Suppress("DEPRECATION")
+                                gatt.writeDescriptor(descriptor)
+                            }
                         } else {
                             Log.e(TAG, "Notification descriptor not found!")
                         }
@@ -392,33 +406,42 @@ class BleForegroundService : Service() {
             }
         }
 
+        @Deprecated("Deprecated in Java")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == CHARACTERISTIC_UUID) {
-                val data = characteristic.value?.let { String(it) } ?: ""
-                Log.v(TAG, "Data received: $data")
-                
-                if (data.contains(",")) {
-                    val parts = data.split(",")
-                    if (parts.size >= 3) {
-                        rawDsTemp = parts[0].toFloatOrNull()
-                        rawBmpTemp = parts[1].toFloatOrNull()
-                        // ESP32 sends altitude in feet
-                        val altInFeet = parts[2].toFloatOrNull()
-                        rawBmpAlt = altInFeet?.let { it / 3.28084f }
-                    }
-                } else {
-                    rawDsTemp = data.toFloatOrNull()
+            @Suppress("DEPRECATION")
+            val data = characteristic.value?.let { String(it) } ?: ""
+            handleData(data)
+        }
+
+        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+            val data = String(value)
+            handleData(data)
+        }
+
+        private fun handleData(data: String) {
+            Log.v(TAG, "Data received: $data")
+            
+            if (data.contains(",")) {
+                val parts = data.split(",")
+                if (parts.size >= 3) {
+                    rawDsTemp = parts[0].toFloatOrNull()
+                    rawBmpTemp = parts[1].toFloatOrNull()
+                    // ESP32 sends altitude in feet
+                    val altInFeet = parts[2].toFloatOrNull()
+                    rawBmpAlt = altInFeet?.let { it / 3.28084f }
                 }
-                
-                lastUpdateTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-                updateCalibratedStrings()
-                recordData()
+            } else {
+                rawDsTemp = data.toFloatOrNull()
             }
+            
+            lastUpdateTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+            updateCalibratedStrings()
+            recordData()
         }
     }
 
     private fun updateCalibratedStrings() {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val tOffset = prefs.getFloat(KEY_TEMP_OFFSET, 0f)
         val aOffset = prefs.getFloat(KEY_ALT_OFFSET, 0f)
 
@@ -486,17 +509,17 @@ class BleForegroundService : Service() {
     private fun drawChart(): Bitmap {
         val width = 600
         val height = 250
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         
         // Use a copy to avoid ConcurrentModificationException
         val historyCopy = synchronized(dataHistory) { dataHistory.toList() }
         
         val now = System.currentTimeMillis()
-        val chartStartTime = if (historyCopy.isNotEmpty()) Math.max(now - HISTORY_LIMIT_MS, historyCopy.first().timestamp) else now - HISTORY_LIMIT_MS
-        val totalRange = Math.max(10000L, now - chartStartTime)
+        val chartStartTime = if (historyCopy.isNotEmpty()) max(now - HISTORY_LIMIT_MS, historyCopy.first().timestamp) else now - HISTORY_LIMIT_MS
+        val totalRange = max(10000L, now - chartStartTime)
 
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val tempSource = prefs.getInt(KEY_TEMP_SOURCE, 0)
         val altSource = prefs.getInt(KEY_ALT_SOURCE, 0)
         val isMetric = prefs.getBoolean(KEY_IS_METRIC, true)
@@ -681,7 +704,7 @@ class BleForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(prefListener)
 
         shouldAutoReconnect = false
