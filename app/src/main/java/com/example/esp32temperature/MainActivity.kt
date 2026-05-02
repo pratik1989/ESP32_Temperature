@@ -30,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -356,10 +358,20 @@ fun MainScreen(
     val scrollState = rememberScrollState()
     val context = LocalContext.current
 
-    // Scrollbar visibility logic - fades out when not scrolling
+    // Scrollbar visibility logic - show when scrolling, fade out after
+    var showScrollbar by remember { mutableStateOf(false) }
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (scrollState.isScrollInProgress) {
+            showScrollbar = true
+        } else {
+            kotlinx.coroutines.delay(1500)
+            showScrollbar = false
+        }
+    }
+
     val scrollbarAlpha by animateFloatAsState(
-        targetValue = if (scrollState.isScrollInProgress) 0.6f else 0f,
-        animationSpec = tween(durationMillis = if (scrollState.isScrollInProgress) 100 else 800),
+        targetValue = if (showScrollbar) 0.8f else 0f,
+        animationSpec = tween(durationMillis = if (showScrollbar) 150 else 800),
         label = "scrollbarAlpha"
     )
 
@@ -372,12 +384,12 @@ fun MainScreen(
                     val scrollbarWidth = 4.dp.toPx()
                     val visibleHeight = size.height
                     val totalHeight = visibleHeight + scrollState.maxValue
-                    val scrollbarHeight = visibleHeight * (visibleHeight / totalHeight)
+                    val scrollbarHeight = (visibleHeight * (visibleHeight / totalHeight)).coerceAtLeast(32.dp.toPx())
                     val scrollbarYOffset = (scrollState.value.toFloat() / scrollState.maxValue) * (visibleHeight - scrollbarHeight)
                     
                     drawRoundRect(
                         color = ComposeColor.White.copy(alpha = scrollbarAlpha),
-                        topLeft = Offset(size.width - scrollbarWidth - 2.dp.toPx(), scrollbarYOffset),
+                        topLeft = Offset(size.width - scrollbarWidth - 4.dp.toPx(), scrollbarYOffset),
                         size = Size(scrollbarWidth, scrollbarHeight),
                         cornerRadius = CornerRadius(scrollbarWidth / 2, scrollbarWidth / 2)
                     )
@@ -387,18 +399,19 @@ fun MainScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .padding(horizontal = 16.dp)
                 .verticalScroll(scrollState),
             verticalArrangement = Arrangement.Top,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            val statusColor = if (status == "Connected") ComposeColor(0xFF4CAF50) else ComposeColor.Red
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            val statusColor = if (status == "Connected" || status == "Simulating") ComposeColor(0xFF4CAF50) else ComposeColor.Red
             
             Text(
                 text = status,
                 color = statusColor,
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(top = 16.dp)
+                style = MaterialTheme.typography.headlineMedium
             )
             
             if (id.isNotEmpty()) {
@@ -504,7 +517,7 @@ fun MainScreen(
                 )
 
                 // Dynamic Altitude Offset Title and Unit Conversion
-                val altLabel = if (isMetric) "Alt Offset (meters)" else "Alt Offset (ft)"
+                val altLabel = if (isMetric) "Alt Offset (m)" else "Alt Offset (ft)"
                 val displayedAltOffset = if (isMetric) altOffset else altOffset * 3.28084f
                 
                 var altOffText by remember(isMetric, altOffset) { 
@@ -518,11 +531,11 @@ fun MainScreen(
                         it.toFloatOrNull()?.let { f -> 
                             val metersValue = if (isMetric) f else f / 3.28084f
                             onAltOffsetChange(metersValue) 
-                        }
-                    },
-                    label = { Text(altLabel) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.weight(1f)
+                    }
+                },
+                label = { Text(altLabel) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f)
                 )
             }
 
@@ -621,12 +634,14 @@ fun MainScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                UnitToggle(label = if (isMetric) "Meters" else "Feet", checked = !isMetric, onCheckedChange = { onUnitToggle() })
-                UnitToggle(label = if (isCelsius) "°C" else "°F", checked = !isCelsius, onCheckedChange = { onTempToggle() })
-                UnitToggle(label = "Alt Only", checked = showAltOnly, onCheckedChange = { onAltOnlyToggle() })
-                UnitToggle(label = "Sim", checked = isSimulated, onCheckedChange = { onSimToggle() })
-                UnitToggle(label = "Lock", checked = isLocked, onCheckedChange = { onLockToggle() })
+                UnitToggle(label = if (isMetric) "Meters" else "Feet", checked = !isMetric, onCheckedChange = { onUnitToggle() }, modifier = Modifier.weight(1f))
+                UnitToggle(label = if (isCelsius) "°C" else "°F", checked = !isCelsius, onCheckedChange = { onTempToggle() }, modifier = Modifier.weight(1f))
+                UnitToggle(label = "Alt Only", checked = showAltOnly, onCheckedChange = { onAltOnlyToggle() }, modifier = Modifier.weight(1f))
+                UnitToggle(label = "Simulation", checked = isSimulated, onCheckedChange = { onSimToggle() }, modifier = Modifier.weight(1f))
+                UnitToggle(label = "Lock", checked = isLocked, onCheckedChange = { onLockToggle() }, modifier = Modifier.weight(1f))
             }
+            
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 
@@ -700,18 +715,28 @@ fun MainScreen(
 }
 
 @Composable
-fun UnitToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, style = MaterialTheme.typography.bodySmall)
-        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.customScale(0.7f))
+fun UnitToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // Fixed height Box ensures all switches in the Row are aligned horizontally
+        Box(
+            modifier = Modifier.height(42.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label, 
+                style = MaterialTheme.typography.bodySmall, 
+                textAlign = TextAlign.Center,
+                lineHeight = 12.sp
+            )
+        }
+        Switch(
+            checked = checked, 
+            onCheckedChange = onCheckedChange, 
+            modifier = Modifier.scale(0.7f)
+        )
     }
 }
-
-private fun Modifier.customScale(scale: Float): Modifier = this.then(
-    Modifier.layout { measurable, constraints ->
-        val placeable = measurable.measure(constraints)
-        layout((placeable.width * scale).toInt(), (placeable.height * scale).toInt()) {
-            placeable.placeRelative(0, 0)
-        }
-    }
-)
