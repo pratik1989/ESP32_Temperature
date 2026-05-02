@@ -672,9 +672,21 @@ fun MainScreen(
                             context.startActivity(intent)
                         }) {
                             Icon(
-                                imageVector = Icons.Default.CameraAlt,
+                                painter = painterResource(id = R.drawable.ic_instagram),
                                 contentDescription = "Instagram",
-                                tint = ComposeColor(0xFFE4405F),
+                                tint = ComposeColor.Unspecified,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        IconButton(onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/pratik1989/ESP32_Temperature"))
+                            context.startActivity(intent)
+                        }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_github),
+                                contentDescription = "GitHub",
+                                tint = ComposeColor.White,
                                 modifier = Modifier.size(40.dp)
                             )
                         }
