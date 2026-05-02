@@ -8,7 +8,6 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -19,7 +18,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,7 +30,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -45,9 +42,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.example.esp32temperature.ui.theme.ESP32TemperatureTheme
 import java.text.NumberFormat
 import java.util.*
@@ -116,7 +114,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         checkAndRequestPermissions()
 
-        val prefs = getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE)
         isMetric = prefs.getBoolean(BleForegroundService.KEY_IS_METRIC, true)
         isCelsius = prefs.getBoolean(BleForegroundService.KEY_IS_CELSIUS, true)
         showAltOnly = prefs.getBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, false)
@@ -153,10 +151,10 @@ class MainActivity : ComponentActivity() {
                         onTempToggle = { toggleTempUnits() },
                         onAltOnlyToggle = { toggleAltOnly() },
                         onLockToggle = { toggleLock() },
-                        onTempSourceChange = { updateTempSource(index = it) },
-                        onAltSourceChange = { updateAltSource(index = it) },
-                        onTempOffsetChange = { updateTempOffset(offset = it) },
-                        onAltOffsetChange = { updateAltOffset(offsetMeters = it) },
+                        onTempSourceChange = { updateTempSource(it) },
+                        onAltSourceChange = { updateAltSource(it) },
+                        onTempOffsetChange = { updateTempOffset(it) },
+                        onAltOffsetChange = { updateAltOffset(it) },
                         onStartClick = { startBleService() },
                         onStopClick = { stopBleService() },
                         onDmd2Click = { openDmd2() }
@@ -168,58 +166,51 @@ class MainActivity : ComponentActivity() {
 
     private fun updateTempSource(index: Int) {
         tempSource = index
-        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(BleForegroundService.KEY_TEMP_SOURCE, index)
-            .apply()
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putInt(BleForegroundService.KEY_TEMP_SOURCE, index)
+        }
     }
 
     private fun updateAltSource(index: Int) {
         altSource = index
-        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(BleForegroundService.KEY_ALT_SOURCE, index)
-            .apply()
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putInt(BleForegroundService.KEY_ALT_SOURCE, index)
+        }
     }
 
     private fun updateTempOffset(offset: Float) {
         tempOffset = offset
-        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putFloat(BleForegroundService.KEY_TEMP_OFFSET, offset)
-            .apply()
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putFloat(BleForegroundService.KEY_TEMP_OFFSET, offset)
+        }
     }
 
     private fun updateAltOffset(offsetMeters: Float) {
         altOffset = offsetMeters
-        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putFloat(BleForegroundService.KEY_ALT_OFFSET, offsetMeters)
-            .apply()
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putFloat(BleForegroundService.KEY_ALT_OFFSET, offsetMeters)
+        }
     }
 
     private fun toggleUnits() {
         isMetric = !isMetric
-        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(BleForegroundService.KEY_IS_METRIC, isMetric)
-            .apply()
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putBoolean(BleForegroundService.KEY_IS_METRIC, isMetric)
+        }
     }
 
     private fun toggleTempUnits() {
         isCelsius = !isCelsius
-        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(BleForegroundService.KEY_IS_CELSIUS, isCelsius)
-            .apply()
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putBoolean(BleForegroundService.KEY_IS_CELSIUS, isCelsius)
+        }
     }
 
     private fun toggleAltOnly() {
         showAltOnly = !showAltOnly
-        getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, showAltOnly)
-            .apply()
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, showAltOnly)
+        }
     }
 
     private fun toggleLock() {
@@ -229,18 +220,16 @@ class MainActivity : ComponentActivity() {
         }
 
         isLocked = !isLocked
-        val prefs = getSharedPreferences(BleForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-        editor.putBoolean(BleForegroundService.KEY_IS_LOCKED, isLocked)
-        
-        if (isLocked) {
-            editor.putString(BleForegroundService.KEY_LOCKED_DEVICE_ID, deviceId)
-            Toast.makeText(this, "Sensor Locked to: $deviceId", Toast.LENGTH_SHORT).show()
-        } else {
-            editor.putString(BleForegroundService.KEY_LOCKED_DEVICE_ID, "")
-            Toast.makeText(this, "Sensor Unlocked", Toast.LENGTH_SHORT).show()
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putBoolean(BleForegroundService.KEY_IS_LOCKED, isLocked)
+            if (isLocked) {
+                putString(BleForegroundService.KEY_LOCKED_DEVICE_ID, deviceId)
+                Toast.makeText(this@MainActivity, "Sensor Locked to: $deviceId", Toast.LENGTH_SHORT).show()
+            } else {
+                putString(BleForegroundService.KEY_LOCKED_DEVICE_ID, "")
+                Toast.makeText(this@MainActivity, "Sensor Unlocked", Toast.LENGTH_SHORT).show()
+            }
         }
-        editor.apply()
     }
 
     private fun openDmd2() {
@@ -259,11 +248,7 @@ class MainActivity : ComponentActivity() {
             addAction(BleForegroundService.ACTION_CONNECTION_STATUS)
             addAction(BleForegroundService.ACTION_UPDATE_DATA)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(dataReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(dataReceiver, filter)
-        }
+        ContextCompat.registerReceiver(this, dataReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onPause() {
@@ -277,6 +262,7 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         } else {
+            @Suppress("DEPRECATION")
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
         
@@ -421,7 +407,7 @@ fun MainScreen(
                 readOnly = true,
                 label = { Text("Temperature Source") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tempExpanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth()
+                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
             )
             ExposedDropdownMenu(
                 expanded = tempExpanded,
@@ -453,7 +439,7 @@ fun MainScreen(
                 readOnly = true,
                 label = { Text("Altitude Source") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = altExpanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth()
+                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
             )
             ExposedDropdownMenu(
                 expanded = altExpanded,
@@ -534,7 +520,7 @@ fun MainScreen(
                           else if (tempSource == 1 && isBmpFault) ""
                           else {
             val t = currentTemp.toFloatOrNull() ?: 0f
-            if (isCelsius) String.format("%.1f °C", t) else String.format("%.1f °F", t * 9/5 + 32)
+            if (isCelsius) String.format(Locale.US, "%.1f °C", t) else String.format(Locale.US, "%.1f °F", t * 9/5 + 32)
         }
         
         val currentAlt = if (altSource == 0) gpsAlt else bmpAlt
@@ -656,8 +642,7 @@ fun MainScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@sleepyvoyager"))
-                            context.startActivity(intent)
+                            context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.youtube.com/@sleepyvoyager".toUri()))
                         }) {
                             Icon(
                                 imageVector = Icons.Default.PlayCircle,
@@ -668,8 +653,7 @@ fun MainScreen(
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         IconButton(onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/sleepyvoyager/"))
-                            context.startActivity(intent)
+                            context.startActivity(Intent(Intent.ACTION_VIEW, "https://www.instagram.com/sleepyvoyager/".toUri()))
                         }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_instagram),
@@ -680,8 +664,7 @@ fun MainScreen(
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         IconButton(onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/pratik1989/ESP32_Temperature"))
-                            context.startActivity(intent)
+                            context.startActivity(Intent(Intent.ACTION_VIEW, "https://github.com/pratik1989/ESP32_Temperature".toUri()))
                         }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_github),
@@ -701,11 +684,11 @@ fun MainScreen(
 fun UnitToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = label, style = MaterialTheme.typography.bodySmall)
-        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.scale(0.7f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.customScale(0.7f))
     }
 }
 
-private fun Modifier.scale(scale: Float): Modifier = this.then(
+private fun Modifier.customScale(scale: Float): Modifier = this.then(
     Modifier.layout { measurable, constraints ->
         val placeable = measurable.measure(constraints)
         layout((placeable.width * scale).toInt(), (placeable.height * scale).toInt()) {
