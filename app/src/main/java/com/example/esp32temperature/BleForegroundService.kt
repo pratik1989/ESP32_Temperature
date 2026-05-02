@@ -92,6 +92,7 @@ class BleForegroundService : Service() {
         const val KEY_SHOW_ALT_ONLY = "show_alt_only"
         const val KEY_LOCKED_DEVICE_ID = "locked_device_id"
         const val KEY_IS_LOCKED = "is_locked"
+        const val KEY_IS_SIMULATED = "is_simulated"
         
         const val KEY_TEMP_SOURCE = "temp_source" // 0: DS18B20, 1: BMP280
         const val KEY_ALT_SOURCE = "alt_source"   // 0: GPS, 1: BMP280
@@ -100,7 +101,10 @@ class BleForegroundService : Service() {
         const val KEY_ALT_OFFSET = "alt_offset" // Stored in METERS
     }
 
-    private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+    private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == KEY_IS_SIMULATED) {
+            checkSimulationState()
+        }
         updateCalibratedStrings()
         updateWidgetAndBroadcast()
     }
@@ -108,13 +112,53 @@ class BleForegroundService : Service() {
     private val watchdogRunnable = object : Runnable {
         override fun run() {
             if (shouldAutoReconnect && bluetoothGatt == null && !isScanning) {
-                Log.d(TAG, "Watchdog: checking connection status...")
-                checkAndConnectIfAlreadyPaired()
-                if (bluetoothGatt == null && !isScanning) {
-                    startScanning()
+                val isSimulated = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_IS_SIMULATED, false)
+                if (!isSimulated) {
+                    Log.d(TAG, "Watchdog: checking connection status...")
+                    checkAndConnectIfAlreadyPaired()
+                    if (bluetoothGatt == null && !isScanning) {
+                        startScanning()
+                    }
                 }
             }
             handler.postDelayed(this, 15000)
+        }
+    }
+
+    private val simulationRunnable = object : Runnable {
+        override fun run() {
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_IS_SIMULATED, false)) {
+                generateSimulatedData()
+                handler.postDelayed(this, 2000)
+            } else {
+                broadcastStatus(if (bluetoothGatt != null) "Connected" else "Disconnected", connectedDeviceId)
+            }
+        }
+    }
+
+    private fun generateSimulatedData() {
+        val random = Random()
+        rawDsTemp = 15f + random.nextFloat() * 30f // 15-45 C
+        rawBmpTemp = rawDsTemp!! + (random.nextFloat() - 0.5f) * 2f
+        
+        // 1000 to 20000 ft -> convert to meters
+        val feet = 1000f + random.nextFloat() * 19000f
+        rawBmpAlt = feet / 3.28084f
+        rawGpsAlt = rawBmpAlt!! + (random.nextFloat() - 0.5f) * 10f
+        
+        currentStatus = "Simulating"
+        lastUpdateTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        updateCalibratedStrings()
+        recordData()
+    }
+
+    private fun checkSimulationState() {
+        val isSimulated = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_IS_SIMULATED, false)
+        handler.removeCallbacks(simulationRunnable)
+        if (isSimulated) {
+            stopScanning()
+            handler.post(simulationRunnable)
         }
     }
 
@@ -127,6 +171,8 @@ class BleForegroundService : Service() {
         
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(prefListener)
+            
+        checkSimulationState()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -150,8 +196,11 @@ class BleForegroundService : Service() {
         }
 
         handler.post { 
-            if (!checkAndConnectIfAlreadyPaired()) {
-                startScanning() 
+            val isSimulated = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_IS_SIMULATED, false)
+            if (!isSimulated) {
+                if (!checkAndConnectIfAlreadyPaired()) {
+                    startScanning() 
+                }
             }
         }
         handler.post { startLocationUpdates() }
@@ -221,6 +270,9 @@ class BleForegroundService : Service() {
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_IS_SIMULATED, false)) return
+
             if (location.hasAltitude()) {
                 rawGpsAlt = location.altitude.toFloat()
                 updateCalibratedStrings()
@@ -234,7 +286,8 @@ class BleForegroundService : Service() {
     }
 
     private fun startScanning() {
-        if (isScanning || bluetoothGatt != null) return
+        val isSimulated = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_IS_SIMULATED, false)
+        if (isScanning || bluetoothGatt != null || isSimulated) return
         
         val adapter = bluetoothAdapter
         if (adapter == null || !adapter.isEnabled) {
@@ -341,7 +394,9 @@ class BleForegroundService : Service() {
                 
                 lastUpdateTime = ""
                 updateWidgetAndBroadcast()
-                if (shouldAutoReconnect) {
+                
+                val isSimulated = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_IS_SIMULATED, false)
+                if (shouldAutoReconnect && !isSimulated) {
                     handler.postDelayed({ 
                         if (bluetoothGatt == null) startScanning() 
                     }, 5000)
@@ -419,6 +474,9 @@ class BleForegroundService : Service() {
         }
 
         private fun handleData(data: String) {
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            if (prefs.getBoolean(KEY_IS_SIMULATED, false)) return
+
             Log.v(TAG, "Data received: $data")
             
             if (data.contains(",")) {

@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
     private var isCelsius by mutableStateOf(true)
     private var showAltOnly by mutableStateOf(false)
     private var isLocked by mutableStateOf(false)
+    private var isSimulated by mutableStateOf(false)
     
     private var tempSource by mutableIntStateOf(0) // 0: DS18B20, 1: BMP280
     private var altSource by mutableIntStateOf(0)  // 0: GPS, 1: BMP280
@@ -119,6 +120,7 @@ class MainActivity : ComponentActivity() {
         isCelsius = prefs.getBoolean(BleForegroundService.KEY_IS_CELSIUS, true)
         showAltOnly = prefs.getBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, false)
         isLocked = prefs.getBoolean(BleForegroundService.KEY_IS_LOCKED, false)
+        isSimulated = prefs.getBoolean(BleForegroundService.KEY_IS_SIMULATED, false)
         tempSource = prefs.getInt(BleForegroundService.KEY_TEMP_SOURCE, 0)
         altSource = prefs.getInt(BleForegroundService.KEY_ALT_SOURCE, 0)
         tempOffset = prefs.getFloat(BleForegroundService.KEY_TEMP_OFFSET, 0f)
@@ -143,6 +145,7 @@ class MainActivity : ComponentActivity() {
                         isCelsius = isCelsius,
                         showAltOnly = showAltOnly,
                         isLocked = isLocked,
+                        isSimulated = isSimulated,
                         tempSource = tempSource,
                         altSource = altSource,
                         tempOffset = tempOffset,
@@ -151,6 +154,7 @@ class MainActivity : ComponentActivity() {
                         onTempToggle = { toggleTempUnits() },
                         onAltOnlyToggle = { toggleAltOnly() },
                         onLockToggle = { toggleLock() },
+                        onSimToggle = { toggleSimulated() },
                         onTempSourceChange = { updateTempSource(it) },
                         onAltSourceChange = { updateAltSource(it) },
                         onTempOffsetChange = { updateTempOffset(it) },
@@ -210,6 +214,13 @@ class MainActivity : ComponentActivity() {
         showAltOnly = !showAltOnly
         getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
             putBoolean(BleForegroundService.KEY_SHOW_ALT_ONLY, showAltOnly)
+        }
+    }
+
+    private fun toggleSimulated() {
+        isSimulated = !isSimulated
+        getSharedPreferences(BleForegroundService.PREFS_NAME, MODE_PRIVATE).edit {
+            putBoolean(BleForegroundService.KEY_IS_SIMULATED, isSimulated)
         }
     }
 
@@ -323,6 +334,7 @@ fun MainScreen(
     isCelsius: Boolean,
     showAltOnly: Boolean,
     isLocked: Boolean,
+    isSimulated: Boolean,
     tempSource: Int,
     altSource: Int,
     tempOffset: Float,
@@ -331,6 +343,7 @@ fun MainScreen(
     onTempToggle: () -> Unit,
     onAltOnlyToggle: () -> Unit,
     onLockToggle: () -> Unit,
+    onSimToggle: () -> Unit,
     onTempSourceChange: (Int) -> Unit,
     onAltSourceChange: (Int) -> Unit,
     onTempOffsetChange: (Float) -> Unit,
@@ -350,7 +363,7 @@ fun MainScreen(
         label = "scrollbarAlpha"
     )
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .drawWithContent {
@@ -370,244 +383,250 @@ fun MainScreen(
                     )
                 }
             }
-            .padding(16.dp)
-            .verticalScroll(scrollState),
-        verticalArrangement = Arrangement.Top,
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        val statusColor = if (status == "Connected") ComposeColor(0xFF4CAF50) else ComposeColor.Red
-        
-        Text(
-            text = status,
-            color = statusColor,
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(top = 16.dp)
-        )
-        
-        if (id.isNotEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(scrollState),
+            verticalArrangement = Arrangement.Top,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val statusColor = if (status == "Connected") ComposeColor(0xFF4CAF50) else ComposeColor.Red
+            
             Text(
-                text = "Device Address: $id",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(bottom = 8.dp)
+                text = status,
+                color = statusColor,
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(top = 16.dp)
             )
-        }
+            
+            if (id.isNotEmpty()) {
+                Text(
+                    text = "Device Address: $id",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
 
-        Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-        // Source Selection Dropdowns
-        val tempOptions = listOf("DS18B20", "BMP280")
-        var tempExpanded by remember { mutableStateOf(false) }
-        ExposedDropdownMenuBox(
-            expanded = tempExpanded,
-            onExpandedChange = { tempExpanded = !tempExpanded }
-        ) {
-            OutlinedTextField(
-                value = tempOptions[tempSource],
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Temperature Source") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tempExpanded) },
-                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
-            )
-            ExposedDropdownMenu(
+            // Source Selection Dropdowns
+            val tempOptions = listOf("DS18B20", "BMP280")
+            var tempExpanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
                 expanded = tempExpanded,
-                onDismissRequest = { tempExpanded = false }
+                onExpandedChange = { tempExpanded = !tempExpanded }
             ) {
-                tempOptions.forEachIndexed { index, option ->
-                    DropdownMenuItem(
-                        text = { Text(option) },
-                        onClick = {
-                            onTempSourceChange(index)
-                            tempExpanded = false
-                        }
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val altOptions = listOf("Internal GPS", "BMP280")
-        var altExpanded by remember { mutableStateOf(false) }
-        ExposedDropdownMenuBox(
-            expanded = altExpanded,
-            onExpandedChange = { altExpanded = !altExpanded }
-        ) {
-            OutlinedTextField(
-                value = altOptions[altSource],
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Altitude Source") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = altExpanded) },
-                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
-            )
-            ExposedDropdownMenu(
-                expanded = altExpanded,
-                onDismissRequest = { altExpanded = false }
-            ) {
-                altOptions.forEachIndexed { index, option ->
-                    DropdownMenuItem(
-                        text = { Text(option) },
-                        onClick = {
-                            onAltSourceChange(index)
-                            altExpanded = false
-                        }
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Offset Boxes Aligned Horizontally
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Dynamic Temperature Offset Title and Unit Conversion
-            val tempLabel = if (isCelsius) "Temp Offset (°C)" else "Temp Offset (°F)"
-            val displayedTempOffset = if (isCelsius) tempOffset else tempOffset * 9/5
-            
-            var tempOffText by remember(isCelsius, tempOffset) { 
-                mutableStateOf(String.format(Locale.US, "%.1f", displayedTempOffset)) 
-            }
-            
-            OutlinedTextField(
-                value = tempOffText,
-                onValueChange = {
-                    tempOffText = it
-                    it.toFloatOrNull()?.let { f -> 
-                        val celsiusOffsetValue = if (isCelsius) f else f * 5/9
-                        onTempOffsetChange(celsiusOffsetValue) 
-                    }
-                },
-                label = { Text(tempLabel) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f)
-            )
-
-            // Dynamic Altitude Offset Title and Unit Conversion
-            val altLabel = if (isMetric) "Alt Offset (meters)" else "Alt Offset (ft)"
-            val displayedAltOffset = if (isMetric) altOffset else altOffset * 3.28084f
-            
-            var altOffText by remember(isMetric, altOffset) { 
-                mutableStateOf(String.format(Locale.US, "%.1f", displayedAltOffset)) 
-            }
-            
-            OutlinedTextField(
-                value = altOffText,
-                onValueChange = {
-                    altOffText = it
-                    it.toFloatOrNull()?.let { f -> 
-                        val metersValue = if (isMetric) f else f / 3.28084f
-                        onAltOffsetChange(metersValue) 
-                    }
-                },
-                label = { Text(altLabel) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        val isDsFault = dsTemp.toFloatOrNull() == -127.0f
-        val isBmpFault = bmpTemp.contains("nan", ignoreCase = true) || bmpAlt.contains("nan", ignoreCase = true)
-
-        val currentTemp = if (tempSource == 0) dsTemp else bmpTemp
-        val displayTemp = if (currentTemp == "--") "--" 
-                          else if (tempSource == 0 && isDsFault) "" 
-                          else if (tempSource == 1 && isBmpFault) ""
-                          else {
-            val t = currentTemp.toFloatOrNull() ?: 0f
-            if (isCelsius) String.format(Locale.US, "%.1f °C", t) else String.format(Locale.US, "%.1f °F", t * 9/5 + 32)
-        }
-        
-        val currentAlt = if (altSource == 0) gpsAlt else bmpAlt
-        val displayAlt = if (currentAlt == "--") "--" 
-                          else if (altSource == 1 && isBmpFault) ""
-                          else {
-            val a = currentAlt.toFloatOrNull() ?: 0f
-            val value = if (isMetric) a else a * 3.28084f
-            val roundedValue = ceil(value).toInt()
-            val formatter = NumberFormat.getIntegerInstance(Locale.getDefault())
-            val formatted = formatter.format(roundedValue)
-            if (isMetric) "$formatted m" else "$formatted ft"
-        }
-
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.Start) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Temperature: $displayTemp", style = MaterialTheme.typography.titleLarge)
-                if (lastUpdate.isNotEmpty()) {
-                    Text(
-                        text = " ($lastUpdate)",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                    
-                    val errorMsg = when {
-                        isDsFault && isBmpFault -> "Both DS18B20 and BMP280 sensors are not connected or sensor fault"
-                        isDsFault && tempSource == 0 -> "DS18B20 is not connected or sensor fault"
-                        isBmpFault && (tempSource == 1 || altSource == 1) -> "BMP280 is not connected or sensor fault"
-                        else -> null
-                    }
-                    
-                    if (errorMsg != null) {
-                        Text(
-                            text = " $errorMsg",
-                            color = ComposeColor.Red,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(start = 4.dp)
+                OutlinedTextField(
+                    value = tempOptions[tempSource],
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Temperature Source") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = tempExpanded) },
+                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = tempExpanded,
+                    onDismissRequest = { tempExpanded = false }
+                ) {
+                    tempOptions.forEachIndexed { index, option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                onTempSourceChange(index)
+                                tempExpanded = false
+                            }
                         )
                     }
                 }
             }
-            Text(text = "Altitude: $displayAlt", style = MaterialTheme.typography.titleLarge)
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            FilledIconButton(onClick = onStartClick, modifier = Modifier.size(64.dp)) {
-                Icon(Icons.Default.Refresh, "Refresh", modifier = Modifier.size(40.dp))
+            val altOptions = listOf("Internal GPS", "BMP280")
+            var altExpanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
+                expanded = altExpanded,
+                onExpandedChange = { altExpanded = !altExpanded }
+            ) {
+                OutlinedTextField(
+                    value = altOptions[altSource],
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Altitude Source") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = altExpanded) },
+                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = altExpanded,
+                    onDismissRequest = { altExpanded = false }
+                ) {
+                    altOptions.forEachIndexed { index, option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                onAltSourceChange(index)
+                                altExpanded = false
+                            }
+                        )
+                    }
+                }
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            FilledIconButton(onClick = onStopClick, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = ComposeColor.Red)) {
-                Icon(Icons.Default.Stop, "Stop", modifier = Modifier.size(40.dp))
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Offset Boxes Aligned Horizontally
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Dynamic Temperature Offset Title and Unit Conversion
+                val tempLabel = if (isCelsius) "Temp Offset (°C)" else "Temp Offset (°F)"
+                val displayedTempOffset = if (isCelsius) tempOffset else tempOffset * 9/5
+                
+                var tempOffText by remember(isCelsius, tempOffset) { 
+                    mutableStateOf(String.format(Locale.US, "%.1f", displayedTempOffset)) 
+                }
+                
+                OutlinedTextField(
+                    value = tempOffText,
+                    onValueChange = {
+                        tempOffText = it
+                        it.toFloatOrNull()?.let { f -> 
+                            val celsiusOffsetValue = if (isCelsius) f else f * 5/9
+                            onTempOffsetChange(celsiusOffsetValue) 
+                        }
+                    },
+                    label = { Text(tempLabel) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Dynamic Altitude Offset Title and Unit Conversion
+                val altLabel = if (isMetric) "Alt Offset (meters)" else "Alt Offset (ft)"
+                val displayedAltOffset = if (isMetric) altOffset else altOffset * 3.28084f
+                
+                var altOffText by remember(isMetric, altOffset) { 
+                    mutableStateOf(String.format(Locale.US, "%.1f", displayedAltOffset)) 
+                }
+                
+                OutlinedTextField(
+                    value = altOffText,
+                    onValueChange = {
+                        altOffText = it
+                        it.toFloatOrNull()?.let { f -> 
+                            val metersValue = if (isMetric) f else f / 3.28084f
+                            onAltOffsetChange(metersValue) 
+                        }
+                    },
+                    label = { Text(altLabel) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f)
+                )
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            FilledIconButton(onClick = onDmd2Click, modifier = Modifier.size(64.dp)) {
-                Icon(Icons.Default.Speed, "DMD2", modifier = Modifier.size(40.dp))
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val isDsFault = dsTemp.toFloatOrNull() == -127.0f
+            val isBmpFault = bmpTemp.contains("nan", ignoreCase = true) || bmpAlt.contains("nan", ignoreCase = true)
+
+            val currentTemp = if (tempSource == 0) dsTemp else bmpTemp
+            val displayTemp = if (currentTemp == "--") "--" 
+                              else if (tempSource == 0 && isDsFault) "" 
+                              else if (tempSource == 1 && isBmpFault) ""
+                              else {
+                val t = currentTemp.toFloatOrNull() ?: 0f
+                if (isCelsius) String.format(Locale.US, "%.1f °C", t) else String.format(Locale.US, "%.1f °F", t * 9/5 + 32)
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            FilledIconButton(onClick = { showInfoDialog = true }, modifier = Modifier.size(64.dp)) {
-                Icon(Icons.Default.Info, "Info", modifier = Modifier.size(40.dp))
+            
+            val currentAlt = if (altSource == 0) gpsAlt else bmpAlt
+            val displayAlt = if (currentAlt == "--") "--" 
+                              else if (altSource == 1 && isBmpFault) ""
+                              else {
+                val a = currentAlt.toFloatOrNull() ?: 0f
+                val value = if (isMetric) a else a * 3.28084f
+                val roundedValue = ceil(value).toInt()
+                val formatter = NumberFormat.getIntegerInstance(Locale.getDefault())
+                val formatted = formatter.format(roundedValue)
+                if (isMetric) "$formatted m" else "$formatted ft"
             }
-        }
 
-        Spacer(modifier = Modifier.height(8.dp))
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.Start) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "Temperature: $displayTemp", style = MaterialTheme.typography.titleLarge)
+                    if (lastUpdate.isNotEmpty()) {
+                        Text(
+                            text = " ($lastUpdate)",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                        
+                        val errorMsg = when {
+                            isDsFault && isBmpFault -> "Both DS18B20 and BMP280 sensors are not connected or sensor fault"
+                            isDsFault && tempSource == 0 -> "DS18B20 is not connected or sensor fault"
+                            isBmpFault && (tempSource == 1 || altSource == 1) -> "BMP280 is not connected or sensor fault"
+                            else -> null
+                        }
+                        
+                        if (errorMsg != null) {
+                            Text(
+                                text = " $errorMsg",
+                                color = ComposeColor.Red,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    }
+                }
+                Text(text = "Altitude: $displayAlt", style = MaterialTheme.typography.titleLarge)
+            }
 
-        Box(modifier = Modifier.fillMaxWidth().height(250.dp).padding(8.dp)) {
-            bitmap?.let {
-                Image(bitmap = it.asImageBitmap(), contentDescription = "Sensor Chart", modifier = Modifier.fillMaxSize())
-            } ?: Text("Waiting for data...", modifier = Modifier.align(Alignment.Center))
-        }
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledIconButton(onClick = onStartClick, modifier = Modifier.size(64.dp)) {
+                    Icon(Icons.Default.Refresh, "Refresh", modifier = Modifier.size(40.dp))
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                FilledIconButton(onClick = onStopClick, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = ComposeColor.Red)) {
+                    Icon(Icons.Default.Stop, "Stop", modifier = Modifier.size(40.dp))
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                FilledIconButton(onClick = onDmd2Click, modifier = Modifier.size(64.dp)) {
+                    Icon(Icons.Default.Speed, "DMD2", modifier = Modifier.size(40.dp))
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                FilledIconButton(onClick = { showInfoDialog = true }, modifier = Modifier.size(64.dp)) {
+                    Icon(Icons.Default.Info, "Info", modifier = Modifier.size(40.dp))
+                }
+            }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            UnitToggle(label = if (isMetric) "Meters" else "Feet", checked = !isMetric, onCheckedChange = { onUnitToggle() })
-            UnitToggle(label = if (isCelsius) "°C" else "°F", checked = !isCelsius, onCheckedChange = { onTempToggle() })
-            UnitToggle(label = "Alt Only", checked = showAltOnly, onCheckedChange = { onAltOnlyToggle() })
-            UnitToggle(label = "Lock", checked = isLocked, onCheckedChange = { onLockToggle() })
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Box(modifier = Modifier.fillMaxWidth().height(250.dp).padding(8.dp)) {
+                bitmap?.let {
+                    Image(bitmap = it.asImageBitmap(), contentDescription = "Sensor Chart", modifier = Modifier.fillMaxSize())
+                } ?: Text("Waiting for data...", modifier = Modifier.align(Alignment.Center))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                UnitToggle(label = if (isMetric) "Meters" else "Feet", checked = !isMetric, onCheckedChange = { onUnitToggle() })
+                UnitToggle(label = if (isCelsius) "°C" else "°F", checked = !isCelsius, onCheckedChange = { onTempToggle() })
+                UnitToggle(label = "Alt Only", checked = showAltOnly, onCheckedChange = { onAltOnlyToggle() })
+                UnitToggle(label = "Sim", checked = isSimulated, onCheckedChange = { onSimToggle() })
+                UnitToggle(label = "Lock", checked = isLocked, onCheckedChange = { onLockToggle() })
+            }
         }
     }
 
