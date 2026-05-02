@@ -15,6 +15,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,7 +31,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.layout
@@ -351,11 +357,35 @@ fun MainScreen(
     val scrollState = rememberScrollState()
     val context = LocalContext.current
 
+    // Scrollbar visibility logic - fades out when not scrolling
+    val scrollbarAlpha by animateFloatAsState(
+        targetValue = if (scrollState.isScrollInProgress) 0.6f else 0f,
+        animationSpec = tween(durationMillis = if (scrollState.isScrollInProgress) 100 else 800),
+        label = "scrollbarAlpha"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
-            .verticalScroll(scrollState),
+            .verticalScroll(scrollState)
+            .drawWithContent {
+                drawContent()
+                if (scrollState.maxValue > 0 && scrollbarAlpha > 0f) {
+                    val scrollbarWidth = 3.dp.toPx() // Smaller scrollbar
+                    val visibleHeight = size.height
+                    val totalHeight = visibleHeight + scrollState.maxValue
+                    val scrollbarHeight = visibleHeight * (visibleHeight / totalHeight)
+                    val scrollbarYOffset = (scrollState.value.toFloat() / scrollState.maxValue) * (visibleHeight - scrollbarHeight)
+                    
+                    drawRoundRect(
+                        color = ComposeColor.White.copy(alpha = scrollbarAlpha),
+                        topLeft = Offset(size.width - scrollbarWidth, scrollbarYOffset),
+                        size = Size(scrollbarWidth, scrollbarHeight),
+                        cornerRadius = CornerRadius(scrollbarWidth / 2, scrollbarWidth / 2)
+                    )
+                }
+            },
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

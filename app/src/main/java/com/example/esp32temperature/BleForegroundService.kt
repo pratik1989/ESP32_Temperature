@@ -57,7 +57,7 @@ class BleForegroundService : Service() {
     private var connectionStartTime: Long = 0
     
     data class ChartPoint(val timestamp: Long, val dsTemp: Float?, val bmpTemp: Float?, val bmpAlt: Float?, val gpsAlt: Float?)
-    private val dataHistory = mutableListOf<ChartPoint>()
+    private val dataHistory = Collections.synchronizedList(mutableListOf<ChartPoint>())
     private val HISTORY_LIMIT_MS = 3600000L // 1 hour
 
     companion object {
@@ -431,7 +431,9 @@ class BleForegroundService : Service() {
     private fun recordData() {
         val now = System.currentTimeMillis()
         dataHistory.add(ChartPoint(now, rawDsTemp, rawBmpTemp, rawBmpAlt, rawGpsAlt))
-        dataHistory.removeAll { now - it.timestamp > HISTORY_LIMIT_MS }
+        synchronized(dataHistory) {
+            dataHistory.removeAll { now - it.timestamp > HISTORY_LIMIT_MS }
+        }
         
         updateWidgetAndBroadcast()
     }
@@ -487,8 +489,11 @@ class BleForegroundService : Service() {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         
+        // Use a copy to avoid ConcurrentModificationException
+        val historyCopy = synchronized(dataHistory) { dataHistory.toList() }
+        
         val now = System.currentTimeMillis()
-        val chartStartTime = if (dataHistory.isNotEmpty()) Math.max(now - HISTORY_LIMIT_MS, dataHistory.first().timestamp) else now - HISTORY_LIMIT_MS
+        val chartStartTime = if (historyCopy.isNotEmpty()) Math.max(now - HISTORY_LIMIT_MS, historyCopy.first().timestamp) else now - HISTORY_LIMIT_MS
         val totalRange = Math.max(10000L, now - chartStartTime)
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -502,16 +507,23 @@ class BleForegroundService : Service() {
         val aOffset = prefs.getFloat(KEY_ALT_OFFSET, 0f)
 
         // Filter valid points and apply CURRENT calibration
-        val tempPoints = dataHistory.filter { it.timestamp >= chartStartTime }.map { 
-            val tRaw = if (tempSource == 0) it.dsTemp else it.bmpTemp
-            val isFault = if (tempSource == 0) (tRaw == -127.0f) else (tRaw == null)
-            it.timestamp to if (isFault) null else (tRaw!! + tOffset)
-        }.filter { it.second != null }
+        val tempPoints = historyCopy.filter { it.timestamp >= chartStartTime }.mapNotNull { point ->
+            val tRaw = if (tempSource == 0) point.dsTemp else point.bmpTemp
+            if (tRaw == null || (tempSource == 0 && tRaw == -127.0f)) {
+                null
+            } else {
+                point.timestamp to (tRaw + tOffset)
+            }
+        }
         
-        val altPoints = dataHistory.filter { it.timestamp >= chartStartTime }.map { 
-            val aRaw = if (altSource == 0) it.gpsAlt else it.bmpAlt 
-            it.timestamp to aRaw?.let { it + aOffset }
-        }.filter { it.second != null }
+        val altPoints = historyCopy.filter { it.timestamp >= chartStartTime }.mapNotNull { point ->
+            val aRaw = if (altSource == 0) point.gpsAlt else point.bmpAlt 
+            if (aRaw == null) {
+                null
+            } else {
+                point.timestamp to (aRaw + aOffset)
+            }
+        }
 
         val padding = 5f
         val middleY = height / 2f
@@ -551,8 +563,8 @@ class BleForegroundService : Service() {
             }
 
             if (tempPoints.size >= 2) {
-                val minT = tempPoints.minOf { it.second!! }
-                val maxT = tempPoints.maxOf { it.second!! }
+                val minT = tempPoints.minOf { it.second }
+                val maxT = tempPoints.maxOf { it.second }
 
                 val bufferT = ((maxT - minT) * 0.3f).coerceAtLeast(2f)
                 val drawMinT = minT - bufferT
@@ -564,12 +576,12 @@ class BleForegroundService : Service() {
                 val path = Path()
                 fun getY(t: Float) = topChartBottom - ((t - drawMinT) / rangeT) * topChartHeight
 
-                path.moveTo(getX(tempPoints[0].first), getY(tempPoints[0].second!!))
+                path.moveTo(getX(tempPoints[0].first), getY(tempPoints[0].second))
                 for (i in 1 until tempPoints.size) {
                     val x1 = getX(tempPoints[i - 1].first)
-                    val y1 = getY(tempPoints[i - 1].second!!)
+                    val y1 = getY(tempPoints[i - 1].second)
                     val x2 = getX(tempPoints[i].first)
-                    val y2 = getY(tempPoints[i].second!!)
+                    val y2 = getY(tempPoints[i].second)
                     path.cubicTo((x1 + x2) / 2, y1, (x1 + x2) / 2, y2, x2, y2)
                 }
                 canvas.drawPath(path, paint)
@@ -592,8 +604,8 @@ class BleForegroundService : Service() {
         }
 
         if (altPoints.size >= 2) {
-            val minA = altPoints.minOf { it.second!! }
-            val maxA = altPoints.maxOf { it.second!! }
+            val minA = altPoints.minOf { it.second }
+            val maxA = altPoints.maxOf { it.second }
             
             val bufferA = ((maxA - minA) * 0.3f).coerceAtLeast(10f)
             val drawMinA = minA - bufferA
@@ -605,12 +617,12 @@ class BleForegroundService : Service() {
             val path = Path()
             fun getY(a: Float) = bottomChartBottom - ((a - drawMinA) / rangeA) * bottomChartHeight
             
-            path.moveTo(getX(altPoints[0].first), getY(altPoints[0].second!!))
+            path.moveTo(getX(altPoints[0].first), getY(altPoints[0].second))
             for (i in 1 until altPoints.size) {
                 val x1 = getX(altPoints[i - 1].first)
-                val y1 = getY(altPoints[i - 1].second!!)
+                val y1 = getY(altPoints[i - 1].second)
                 val x2 = getX(altPoints[i].first)
-                val y2 = getY(altPoints[i].second!!)
+                val y2 = getY(altPoints[i].second)
                 path.cubicTo((x1 + x2) / 2, y1, (x1 + x2) / 2, y2, x2, y2)
             }
             canvas.drawPath(path, paint)
