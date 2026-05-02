@@ -130,7 +130,7 @@ class BleForegroundService : Service() {
         shouldAutoReconnect = true
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("DMD Temperature Monitor")
+            .setContentTitle("DMD Sense Monitor")
             .setContentText("Monitoring Sensors & GPS...")
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .build()

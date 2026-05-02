@@ -593,39 +593,6 @@ fun MainScreen(
             UnitToggle(label = "Alt Only", checked = showAltOnly, onCheckedChange = { onAltOnlyToggle() })
             UnitToggle(label = "Lock", checked = isLocked, onCheckedChange = { onLockToggle() })
         }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Social Icons at the bottom
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@sleepyvoyager"))
-                context.startActivity(intent)
-            }) {
-                Icon(
-                    imageVector = Icons.Default.PlayCircle,
-                    contentDescription = "YouTube",
-                    tint = ComposeColor.Red,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(24.dp))
-            IconButton(onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/sleepyvoyager/"))
-                context.startActivity(intent)
-            }) {
-                Icon(
-                    imageVector = Icons.Default.CameraAlt,
-                    contentDescription = "Instagram",
-                    tint = ComposeColor(0xFFE4405F),
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-        }
     }
 
     if (showInfoDialog) {
