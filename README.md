@@ -54,10 +54,12 @@ This app is built to communicate with an ESP32 flashed with the matching `MotoCo
 
 ## 🎨 DMD2 Widget Setup
 
-1. Long-press on your DMD2 home screen.
-2. Add an **External Widget**.
+1. Press settings icon on the home screen.
+2. Add system widget on any of the infomration containers on left or right side.
 3. Select **ESP32 Temperature Widget** from the list.
 4. The widget will now show your live sensor data and the trend chart directly on your dashboard.
+
+   > **Note:** upon first sucessful connection with the sensor module, the module broadcasts data after 5 seconds and after that in every 30 seconds. If the app isn't able to connect automatically. Then Press the 'Stop' icon and then the 'Reload' icon to initiate pairing.
 
 <hr>
 
