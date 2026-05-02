@@ -360,7 +360,7 @@ fun MainScreen(
 
     // Scrollbar visibility logic - show when scrolling, fade out after
     var showScrollbar by remember { mutableStateOf(false) }
-    LaunchedEffect(scrollState.isScrollInProgress) {
+    LaunchedEffect(scrollState.isScrollInProgress, scrollState.value) {
         if (scrollState.isScrollInProgress) {
             showScrollbar = true
         } else {
@@ -721,18 +721,14 @@ fun UnitToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Un
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Fixed height Box ensures all switches in the Row are aligned horizontally
-        Box(
-            modifier = Modifier.height(42.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = label, 
-                style = MaterialTheme.typography.bodySmall, 
-                textAlign = TextAlign.Center,
-                lineHeight = 12.sp
-            )
-        }
+        Text(
+            text = label, 
+            style = MaterialTheme.typography.bodySmall, 
+            textAlign = TextAlign.Center,
+            lineHeight = 12.sp,
+            maxLines = 2,
+            modifier = Modifier.height(28.dp).wrapContentHeight(Alignment.Bottom)
+        )
         Switch(
             checked = checked, 
             onCheckedChange = onCheckedChange, 
@@ -740,3 +736,12 @@ fun UnitToggle(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Un
         )
     }
 }
+
+private fun Modifier.customScale(scale: Float): Modifier = this.then(
+    Modifier.layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        layout((placeable.width * scale).toInt(), (placeable.height * scale).toInt()) {
+            placeable.placeRelative(0, 0)
+        }
+    }
+)
